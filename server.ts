@@ -489,6 +489,15 @@ wss.on('connection', (ws: WebSocket) => {
           break;
         }
 
+        case 'watch:ready': {
+          // Ready check signal between detectives
+          broadcastToAll({
+            type: 'watch:ready',
+            payload: msg.payload,
+          });
+          break;
+        }
+
         // WebRTC Signaling Relay
         case 'webrtc:signal': {
           broadcastToOthers(ws, {

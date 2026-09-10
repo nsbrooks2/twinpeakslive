@@ -90,6 +90,8 @@ class RealtimeClient {
             this.emit('watch:chat', msg.payload);
           } else if (msg.type === 'watch:countdown') {
             this.emit('watch:countdown', msg.payload);
+          } else if (msg.type === 'watch:ready') {
+            this.emit('watch:ready', msg.payload);
           } else if (msg.type === 'webrtc:signal') {
             this.emit('webrtc:signal', msg.payload);
           } else {
@@ -220,6 +222,10 @@ class RealtimeClient {
 
   public broadcastCountdown(payload: { seconds: number; initiatedBy: string }) {
     this.send('watch:countdown', payload);
+  }
+
+  public broadcastReady(payload: { user: string; isReady: boolean }) {
+    this.send('watch:ready', payload);
   }
 
   // WebRTC Signaling

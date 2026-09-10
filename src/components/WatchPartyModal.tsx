@@ -2,27 +2,18 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Play, 
   Pause, 
-  RotateCcw, 
-  Volume2, 
-  VolumeX, 
+  RotateCcw,
   Maximize2, 
   Minimize2, 
-  Send, 
-  StickyNote as StickyIcon, 
-  Film, 
-  MessageSquare, 
-  Sparkles, 
-  Users, 
-  Clock, 
-  Compass, 
   X, 
-  AlertCircle, 
-  ExternalLink, 
-  Pin,
+  MessageSquare, 
+  Send, 
+  Users, 
+  Pin, 
+  Sparkles,
+  ExternalLink,
   RefreshCw,
   Tv,
-  CheckCircle2,
-  Info,
   Video,
   VideoOff,
   Mic,
@@ -30,7 +21,15 @@ import {
   PhoneCall,
   PhoneOff,
   Radio,
-  Timer
+  Timer,
+  CheckCircle2,
+  Clock,
+  Columns,
+  AlertCircle,
+  Film,
+  ChevronRight,
+  ChevronLeft,
+  Info
 } from 'lucide-react';
 import { WatchPartyChatMessage, WatchPartySyncState } from '../types';
 import { getSupabase } from '../lib/supabase';
@@ -38,11 +37,7 @@ import { useWebRTC } from '../context/WebRTCContext';
 import { realtimeClient, WatchPartySyncPayload } from '../lib/realtimeClient';
 import { 
   EPISODE_STREAMS,
-  EpisodeVideoData,
-  EPISODE_1_EMBED_URL, 
-  EPISODE_1_VIEW_URL, 
-  EPISODE_2_EMBED_URL,
-  EPISODE_2_VIEW_URL,
+  EpisodeVideoData
 } from '../seedData';
 
 interface WatchPartyModalProps {
@@ -56,7 +51,7 @@ interface WatchPartyModalProps {
   activeEpisodeNumber?: number;
 }
 
-// Audio beep using Web Audio API for synchronous 3-2-1 countdown
+// Audio beep using Web Audio API for synchronous 5-4-3-2-1 countdown
 function playCountdownBeep(freq = 440, duration = 0.15) {
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -66,14 +61,14 @@ function playCountdownBeep(freq = 440, duration = 0.15) {
     const gain = ctx.createGain();
     osc.type = 'sine';
     osc.frequency.setValueAtTime(freq, ctx.currentTime);
-    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start();
     osc.stop(ctx.currentTime + duration);
   } catch {
-    // ignore audio block
+    // Ignore audio block if user hasn't interacted
   }
 }
 
@@ -87,7 +82,7 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
   onPinTheoryToBoard,
   activeEpisodeNumber,
 }) => {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const modalContainerRef = useRef<HTMLDivElement | null>(null);
 
   // WebRTC Video & Audio hook
   const {
@@ -107,7 +102,7 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
   const localWebcamRef = useRef<HTMLVideoElement | null>(null);
   const remoteWebcamRef = useRef<HTMLVideoElement | null>(null);
 
-  // Callback refs to ensure webcam never goes blank
+  // Callback refs to ensure webcam stream binds smoothly
   const handleLocalWebcamRef = useCallback(
     (el: HTMLVideoElement | null) => {
       localWebcamRef.current = el;
@@ -188,25 +183,27 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
 
   const activeStream: EpisodeVideoData = EPISODE_STREAMS[selectedEpisode] || EPISODE_STREAMS[1];
 
-  // Default to synchronized HTML5 video player so Dale and partner can play simultaneously!
-  const [playerMode, setPlayerMode] = useState<'html5' | 'drive-stream'>('html5');
-  const [customVideoUrl, setCustomVideoUrl] = useState<string>('');
+  // Fullscreen Cinema + Sidebar Mode state
+  const [isFullscreenCinema, setIsFullscreenCinema] = useState<boolean>(false);
+  const [isSidebarVisible, setIsSidebarVisible] = useState<boolean>(true);
 
-  // Playback state & synchronized companion timer
+  // Playback companion stopwatch state
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(activeStream.durationSeconds || 5640);
   const [pausedBy, setPausedBy] = useState<string | null>(null);
-  const [syncStatus, setSyncStatus] = useState<string>('Connected to Server');
+  const [syncStatus, setSyncStatus] = useState<string>('Connected to Screening Room');
   const [lastActionBy, setLastActionBy] = useState<string | null>(null);
   const [actionToast, setActionToast] = useState<{ message: string; timestamp: number } | null>(null);
-  const [showInfoBanner, setShowInfoBanner] = useState<boolean>(true);
-  const [isWebcamDockMinimized, setIsWebcamDockMinimized] = useState<boolean>(false);
-  const [isTheaterExpanded, setIsTheaterExpanded] = useState<boolean>(false);
 
-  // Synchronized countdown state
+  // Ready Check state
+  const [isSelfReady, setIsSelfReady] = useState<boolean>(false);
+  const [isPartnerReady, setIsPartnerReady] = useState<boolean>(false);
+
+  // Synchronized countdown state (e.g. 5, 4, 3, 2, 1, 0)
   const [countdownValue, setCountdownValue] = useState<number | null>(null);
   const [countdownInitiator, setCountdownInitiator] = useState<string | null>(null);
+  const countdownIntervalRef = useRef<any>(null);
 
   // Chat & Clues state
   const [messages, setMessages] = useState<WatchPartyChatMessage[]>([]);
@@ -223,11 +220,11 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
     if (!actionToast) return;
     const timer = setTimeout(() => {
       setActionToast(null);
-    }, 3500);
+    }, 4000);
     return () => clearTimeout(timer);
   }, [actionToast]);
 
-  // Companion timer ticking when active
+  // Synchronized companion stopwatch ticking
   useEffect(() => {
     if (!isPlaying) return;
     const interval = setInterval(() => {
@@ -254,7 +251,7 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Broadcast helper
+  // Broadcast companion stopwatch state to partner
   const broadcastPlayback = useCallback(
     (actionPlaying: boolean, actionTime: number, episodeNumber?: number) => {
       if (isBroadcastingRef.current) return;
@@ -274,30 +271,21 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
       if (!actionPlaying) {
         setPausedBy(currentUser.name);
         setActionToast({
-          message: `⏸️ You paused for both at ${formatTime(actionTime)}`,
+          message: `⏸️ You paused companion timer for both at ${formatTime(actionTime)}`,
           timestamp: Date.now(),
         });
       } else {
         setPausedBy(null);
         setActionToast({
-          message: `▶️ You resumed playback for both`,
+          message: `▶️ Companion timer resumed for both`,
           timestamp: Date.now(),
         });
       }
 
-      // 1. Primary: Server WebSocket Relay
+      // 1. Server WebSocket Relay
       realtimeClient.broadcastPlayback(syncData);
 
-      // 2. Local broadcast for same-tab fallback
-      try {
-        const localBroadcast = new BroadcastChannel(`tp_watchparty_sync_${boardId}`);
-        localBroadcast.postMessage({ type: 'playback', data: syncData });
-        localBroadcast.close();
-      } catch (err) {
-        console.warn('BroadcastChannel error', err);
-      }
-
-      // 3. Supabase fallback
+      // 2. Supabase fallback
       const supabase = getSupabase();
       if (supabase) {
         const ch = supabase.channel(`watchparty:${boardId}`);
@@ -311,11 +299,95 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
     [boardId, currentUser.name]
   );
 
-  // Realtime Server & WebSocket Synchronization
+  // Toggle ready status
+  const handleToggleReady = () => {
+    const nextReady = !isSelfReady;
+    setIsSelfReady(nextReady);
+
+    const payload = {
+      user: currentUser.name,
+      isReady: nextReady,
+    };
+
+    realtimeClient.broadcastReady(payload);
+
+    const supabase = getSupabase();
+    if (supabase) {
+      const ch = supabase.channel(`watchparty:${boardId}`);
+      ch.send({
+        type: 'broadcast',
+        event: 'watch_event',
+        payload: { type: 'ready', data: payload },
+      }).catch(() => {});
+    }
+
+    setActionToast({
+      message: nextReady
+        ? `✅ You are marked Ready! (Google Drive cued up)`
+        : `⏳ Marked Not Ready`,
+      timestamp: Date.now(),
+    });
+  };
+
+  // Launch synchronized countdown (default 5 seconds for ample reaction time)
+  const handleTriggerCountdown = (seconds = 5) => {
+    const payload = {
+      seconds,
+      initiatedBy: currentUser.name,
+    };
+
+    realtimeClient.broadcastCountdown(payload);
+
+    const supabase = getSupabase();
+    if (supabase) {
+      const ch = supabase.channel(`watchparty:${boardId}`);
+      ch.send({
+        type: 'broadcast',
+        event: 'watch_event',
+        payload: { type: 'countdown', data: payload },
+      }).catch(() => {});
+    }
+  };
+
+  // Execute countdown locally when event received
+  const startCountdownSequence = useCallback((seconds: number, initiator: string) => {
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+    }
+
+    setCountdownInitiator(initiator);
+    setCountdownValue(seconds);
+    playCountdownBeep(520, 0.2);
+
+    let step = seconds;
+    countdownIntervalRef.current = setInterval(() => {
+      step -= 1;
+      if (step > 0) {
+        setCountdownValue(step);
+        playCountdownBeep(520, 0.2);
+      } else if (step === 0) {
+        setCountdownValue(0);
+        // Triumphant cheer tone on zero!
+        playCountdownBeep(920, 0.45);
+        setIsPlaying(true);
+        setCurrentTime(0);
+        setActionToast({
+          message: `🎬 PRESS PLAY ON GOOGLE DRIVE RIGHT NOW!`,
+          timestamp: Date.now(),
+        });
+      } else {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+        setCountdownValue(null);
+        setCountdownInitiator(null);
+      }
+    }, 1000);
+  }, []);
+
+  // Realtime Server & WebSocket Synchronization Listeners
   useEffect(() => {
     if (!isOpen) return;
 
-    // Mark as watching on server
     realtimeClient.updateActivity(boardId, true);
 
     // Fetch saved chat from server disk
@@ -340,19 +412,11 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
           }
           if (state.isPlaying) {
             const latency = Math.max(0, (Date.now() - (state.updatedAt || Date.now())) / 1000);
-            const targetTime = (state.currentTime || 0) + latency;
-            setCurrentTime(targetTime);
+            setCurrentTime((state.currentTime || 0) + latency);
             setIsPlaying(true);
-            setSyncStatus(`Synced with ${state.updatedBy}`);
-            if (videoRef.current) {
-              videoRef.current.currentTime = targetTime;
-              videoRef.current.play().catch(() => {});
-            }
+            setSyncStatus(`In Sync with ${state.updatedBy}`);
           } else if (state.currentTime > 0) {
             setCurrentTime(state.currentTime);
-            if (videoRef.current) {
-              videoRef.current.currentTime = state.currentTime;
-            }
           }
         }
       })
@@ -360,29 +424,25 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
 
     // 1. Listen to playback sync from server
     const unsubscribePlayback = realtimeClient.on('watch:playback', (sync: WatchPartySyncPayload) => {
-      if (sync.updatedBy === currentUser.name) return; // ignore own broadcast
+      if (sync.updatedBy === currentUser.name) return;
 
       isBroadcastingRef.current = true;
       setLastActionBy(sync.updatedBy);
-      setSyncStatus(`Synced with ${sync.updatedBy}`);
+      setSyncStatus(`In Sync with ${sync.updatedBy}`);
 
-      // If partner changed episode
       if (sync.episodeNumber && sync.episodeNumber !== selectedEpisodeRef.current) {
         const newEpNum = sync.episodeNumber;
         setSelectedEpisode(newEpNum);
         const newStream = EPISODE_STREAMS[newEpNum] || EPISODE_STREAMS[1];
         setDuration(newStream.durationSeconds);
         setActionToast({
-          message: `📼 ${sync.updatedBy} switched Screening Room to ${newStream.title}`,
+          message: `📼 ${sync.updatedBy} switched to ${newStream.title}`,
           timestamp: Date.now(),
         });
       }
 
-      // Latency correction
       const latencyAdjust = sync.updatedAt ? Math.max(0, (Date.now() - sync.updatedAt) / 1000) : 0;
-      const targetTime = sync.currentTime + (sync.isPlaying ? latencyAdjust : 0);
-
-      setCurrentTime(targetTime);
+      setCurrentTime(sync.currentTime + (sync.isPlaying ? latencyAdjust : 0));
       setIsPlaying(sync.isPlaying);
 
       if (!sync.isPlaying) {
@@ -397,19 +457,6 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
           message: `▶️ Resumed by ${sync.updatedBy}`,
           timestamp: Date.now(),
         });
-      }
-
-      // Direct HTML5 Video Sync
-      if (videoRef.current) {
-        if (Math.abs(videoRef.current.currentTime - targetTime) > 0.8) {
-          videoRef.current.currentTime = targetTime;
-        }
-
-        if (sync.isPlaying && videoRef.current.paused) {
-          videoRef.current.play().catch(() => {});
-        } else if (!sync.isPlaying && !videoRef.current.paused) {
-          videoRef.current.pause();
-        }
       }
 
       setTimeout(() => {
@@ -430,38 +477,58 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
 
     // 3. Listen to Synchronized Countdown
     const unsubscribeCountdown = realtimeClient.on('watch:countdown', (payload) => {
-      setCountdownInitiator(payload.initiatedBy);
-      setCountdownValue(3);
-      playCountdownBeep(520, 0.2);
-
-      let step = 3;
-      const timer = setInterval(() => {
-        step -= 1;
-        if (step > 0) {
-          setCountdownValue(step);
-          playCountdownBeep(520, 0.2);
-        } else if (step === 0) {
-          setCountdownValue(0);
-          playCountdownBeep(880, 0.4);
-          setIsPlaying(true);
-          if (videoRef.current) {
-            videoRef.current.play().catch(() => {});
-          }
-        } else {
-          clearInterval(timer);
-          setCountdownValue(null);
-          setCountdownInitiator(null);
-        }
-      }, 1000);
+      startCountdownSequence(payload.seconds || 5, payload.initiatedBy || 'Partner');
     });
+
+    // 4. Listen to Ready Check
+    const unsubscribeReady = realtimeClient.on('watch:ready', (payload) => {
+      if (payload.user !== currentUser.name) {
+        setIsPartnerReady(payload.isReady);
+        setActionToast({
+          message: payload.isReady
+            ? `✅ ${payload.user} is READY! (Cued up at 0:00)`
+            : `⏳ ${payload.user} is getting cued up...`,
+          timestamp: Date.now(),
+        });
+      }
+    });
+
+    // Supabase Channel Backup for countdown, ready, chat
+    const supabase = getSupabase();
+    let supabaseChannel: any = null;
+    if (supabase) {
+      supabaseChannel = supabase
+        .channel(`watchparty:${boardId}`)
+        .on('broadcast', { event: 'watch_event' }, ({ payload }: any) => {
+          if (!payload) return;
+          if (payload.type === 'countdown') {
+            startCountdownSequence(payload.data.seconds || 5, payload.data.initiatedBy);
+          } else if (payload.type === 'ready') {
+            if (payload.data.user !== currentUser.name) {
+              setIsPartnerReady(payload.data.isReady);
+            }
+          } else if (payload.type === 'playback' && payload.data.updatedBy !== currentUser.name) {
+            setCurrentTime(payload.data.currentTime || 0);
+            setIsPlaying(!!payload.data.isPlaying);
+          }
+        })
+        .subscribe();
+    }
 
     return () => {
       realtimeClient.updateActivity(boardId, false);
       unsubscribePlayback();
       unsubscribeChat();
       unsubscribeCountdown();
+      unsubscribeReady();
+      if (supabase && supabaseChannel) {
+        supabase.removeChannel(supabaseChannel);
+      }
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+      }
     };
-  }, [isOpen, boardId, currentUser.name]);
+  }, [isOpen, boardId, currentUser.name, startCountdownSequence]);
 
   // Scroll chat on new message
   useEffect(() => {
@@ -477,6 +544,8 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
     setDuration(newStream.durationSeconds);
     setCurrentTime(0);
     setIsPlaying(false);
+    setIsSelfReady(false);
+    setIsPartnerReady(false);
     setActionToast({
       message: `📼 Switched Screening Room to ${newStream.title}`,
       timestamp: Date.now(),
@@ -484,48 +553,36 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
     broadcastPlayback(false, 0, epNum);
   };
 
-  // Play / Pause toggle
+  // Play / Pause toggle for companion timer
   const handleTogglePlay = () => {
     const nextState = !isPlaying;
     setIsPlaying(nextState);
-
-    if (videoRef.current) {
-      if (nextState) {
-        videoRef.current.play().catch(() => {});
-      } else {
-        videoRef.current.pause();
-      }
-    }
-
     broadcastPlayback(nextState, currentTime);
   };
 
-  // Seek handler
+  // Reset companion timer to 0
+  const handleResetTimer = () => {
+    setCurrentTime(0);
+    setIsPlaying(false);
+    broadcastPlayback(false, 0);
+    setActionToast({
+      message: `🔄 Companion timer reset to 00:00 for both`,
+      timestamp: Date.now(),
+    });
+  };
+
+  // Seek companion timer
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTime = parseFloat(e.target.value);
     setCurrentTime(newTime);
-    if (videoRef.current) {
-      videoRef.current.currentTime = newTime;
-    }
     broadcastPlayback(isPlaying, newTime);
   };
 
-  // Jump by delta seconds
+  // Jump companion timer
   const handleSkip = (seconds: number) => {
     const target = Math.max(0, Math.min(duration, currentTime + seconds));
     setCurrentTime(target);
-    if (videoRef.current) {
-      videoRef.current.currentTime = target;
-    }
     broadcastPlayback(isPlaying, target);
-  };
-
-  // Synchronized 3-2-1 countdown launch
-  const handleTriggerCountdown = () => {
-    realtimeClient.broadcastCountdown({
-      seconds: 3,
-      initiatedBy: currentUser.name,
-    });
   };
 
   // Send Chat message
@@ -546,10 +603,8 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
     setMessages((prev) => [...prev, newMsg]);
     setInputMsg('');
 
-    // Broadcast over WebSocket
     realtimeClient.sendChatMessage(boardId, newMsg);
 
-    // Save to server REST API
     fetch(`/api/chat/${boardId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -565,120 +620,125 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
         formatTime(msg.video_time)
       );
       setActionToast({
-        message: `📌 Pinned timestamp to Investigation Board!`,
+        message: `📌 Pinned timestamp clue to Investigation Board!`,
         timestamp: Date.now(),
       });
     }
   };
 
+  // Toggle browser fullscreen / cinema mode
+  const handleToggleFullscreenCinema = () => {
+    setIsFullscreenCinema((prev) => !prev);
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/95 backdrop-blur-md animate-fadeIn select-none">
+    <div 
+      ref={modalContainerRef}
+      className={`fixed inset-0 z-50 flex items-center justify-center ${
+        isFullscreenCinema ? 'p-0 bg-black' : 'p-2 sm:p-4 bg-black/95 backdrop-blur-md'
+      } animate-fadeIn select-none`}
+    >
       <div 
         className={`w-full ${
-          isTheaterExpanded ? 'max-w-[99vw] h-[98vh]' : 'max-w-7xl h-[92vh]'
-        } bg-[#140b08] border-2 border-[#5a3928] rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.95)] flex flex-col overflow-hidden transition-all text-[#f5ebd4]`}
+          isFullscreenCinema 
+            ? 'w-screen h-screen rounded-none border-0' 
+            : 'max-w-[96vw] xl:max-w-7xl h-[94vh] rounded-2xl border-2 border-[#5a3928] shadow-[0_25px_60px_rgba(0,0,0,0.95)]'
+        } bg-[#140b08] flex flex-col overflow-hidden transition-all text-[#f5ebd4]`}
       >
-        {/* 1. Header Bar: Twin Peaks Sheriff Station Theater */}
-        <div className="h-14 bg-[#1a0f0b] border-b border-[#3e2518] px-4 flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="text-xl">📼</span>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-display font-black text-sm sm:text-base tracking-widest text-[#f5ebd4] uppercase">
-                  SCREENING ROOM
-                </h3>
+        {/* 1. Header Bar: Twin Peaks Sheriff Station Screening Room */}
+        <div className="h-14 bg-[#1a0f0b] border-b border-[#3e2518] px-3 sm:px-4 flex items-center justify-between flex-shrink-0 z-10">
+          <div className="flex items-center gap-2 sm:gap-3 overflow-hidden">
+            <span className="text-xl flex-shrink-0">📼</span>
+            <div className="flex items-center gap-2 flex-wrap truncate">
+              <h3 className="font-display font-black text-xs sm:text-sm md:text-base tracking-widest text-[#f5ebd4] uppercase truncate">
+                TWIN PEAKS SCREENING ROOM
+              </h3>
 
-                {/* Episode Switcher Selector */}
-                <div className="flex items-center gap-1 bg-[#100806] border border-[#44281a] p-0.5 rounded-lg">
-                  {Object.keys(EPISODE_STREAMS).map(Number).sort((a, b) => a - b).map((epNum) => {
-                    const epData = EPISODE_STREAMS[epNum];
-                    if (!epData) return null;
-                    const isSelected = selectedEpisode === epNum;
-                    return (
-                      <button
-                        key={epNum}
-                        onClick={() => handleSelectEpisode(epNum)}
-                        className={`px-2.5 py-0.5 rounded text-[10px] font-typewriter font-bold tracking-wider uppercase transition-all cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#83161c] text-[#fdf2f2] border border-[#b91c1c] shadow-[0_0_10px_rgba(185,28,28,0.4)]'
-                            : 'text-[#9c8472] hover:text-[#f5ebd4] hover:bg-[#25150e]'
-                        }`}
-                        title={`Switch Screening Room to ${epData.title}`}
-                      >
-                        Ep. {epNum}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <span className="bg-[#83161c] text-[#fdf2f2] text-[10px] font-bold px-2 py-0.5 rounded font-typewriter tracking-wider uppercase border border-[#b91c1c] hidden sm:inline-block">
-                  {activeStream.badge}
-                </span>
-
-                {/* Player Mode Switcher */}
-                <div className="hidden md:flex items-center gap-1 bg-[#100806] border border-[#3e2216] p-0.5 rounded-md text-[10px] font-typewriter">
-                  <button
-                    onClick={() => setPlayerMode('html5')}
-                    className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                      playerMode === 'html5'
-                        ? 'bg-[#3d1a10] text-[#e5c158] font-bold border border-[#6b3520]'
-                        : 'text-[#8f745f] hover:text-[#f5ebd4]'
-                    }`}
-                  >
-                    ⚡ Synced HTML5
-                  </button>
-                  <button
-                    onClick={() => setPlayerMode('drive-stream')}
-                    className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                      playerMode === 'drive-stream'
-                        ? 'bg-[#3d1a10] text-[#e5c158] font-bold border border-[#6b3520]'
-                        : 'text-[#8f745f] hover:text-[#f5ebd4]'
-                    }`}
-                  >
-                    Google Drive
-                  </button>
-                </div>
+              {/* Episode Switcher Buttons */}
+              <div className="flex items-center gap-1 bg-[#100806] border border-[#44281a] p-0.5 rounded-lg">
+                {Object.keys(EPISODE_STREAMS).map(Number).sort((a, b) => a - b).map((epNum) => {
+                  const epData = EPISODE_STREAMS[epNum];
+                  if (!epData) return null;
+                  const isSelected = selectedEpisode === epNum;
+                  return (
+                    <button
+                      key={epNum}
+                      onClick={() => handleSelectEpisode(epNum)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-typewriter font-bold tracking-wider uppercase transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#83161c] text-[#fdf2f2] border border-[#b91c1c] shadow-[0_0_10px_rgba(185,28,28,0.4)]'
+                          : 'text-[#9c8472] hover:text-[#f5ebd4] hover:bg-[#25150e]'
+                      }`}
+                      title={`Switch Screening Room to ${epData.title}`}
+                    >
+                      Ep. {epNum}
+                    </button>
+                  );
+                })}
               </div>
-              <p className="font-typewriter text-[10px] text-[#a08774] hidden sm:block">
-                Synchronized Video • Live Webcam & Microphone • Realtime Case Chat
-              </p>
+
+              <span className="bg-[#1f2937] text-[#93c5fd] text-[10px] font-bold px-2 py-0.5 rounded font-typewriter tracking-wider uppercase border border-[#374151] hidden md:inline-block">
+                Google Drive Stream
+              </span>
             </div>
           </div>
 
-          {/* Sync Status Badge & Controls */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="flex items-center gap-2 bg-[#25150f] border border-[#44281a] px-3 py-1 rounded-full text-xs font-typewriter text-[#d8c5ad]">
-              <span className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-              <span>{isPlaying ? 'Playing in Sync' : pausedBy ? `Paused by ${pausedBy}` : 'Paused'}</span>
-              {lastActionBy && (
-                <span className="text-[10px] opacity-75 hidden md:inline">
-                  ({lastActionBy})
-                </span>
-              )}
-            </div>
+          {/* Controls: Ready Check, Countdown Trigger, Fullscreen & Close */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0">
+            {/* Quick Synchronized Countdown Button */}
+            <button
+              onClick={() => handleTriggerCountdown(5)}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 bg-[#83161c] hover:bg-[#991b1b] border border-[#b91c1c] text-[#fdf2f2] rounded-lg text-xs font-typewriter font-bold transition-all shadow cursor-pointer hover:scale-105 active:scale-95"
+              title="Start synchronized 5-second countdown for both users to click Play"
+            >
+              <Timer className="w-3.5 h-3.5 text-amber-300 animate-spin" style={{ animationDuration: '6s' }} />
+              <span className="hidden sm:inline">Start</span>
+              <span>5s Countdown</span>
+            </button>
 
-            {/* Open in Dedicated Window / Google Drive */}
+            {/* Ready Status Toggle */}
+            <button
+              onClick={handleToggleReady}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-typewriter border transition-all cursor-pointer ${
+                isSelfReady 
+                  ? 'bg-emerald-950/80 border-emerald-600 text-emerald-300' 
+                  : 'bg-[#25150f] border-[#4a2e20] text-[#cfb69b] hover:text-[#f5ebd4]'
+              }`}
+              title="Signal to partner that your Google Drive video is cued and ready"
+            >
+              <CheckCircle2 className={`w-3.5 h-3.5 ${isSelfReady ? 'text-emerald-400' : 'text-[#8f745f]'}`} />
+              <span className="hidden md:inline">{isSelfReady ? 'Ready' : 'Cue Ready'}</span>
+            </button>
+
+            {/* Pop-Out Google Drive in new tab */}
             <a
               href={activeStream.viewUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 bg-[#25150f] hover:bg-[#382017] border border-[#4a2e20] text-[#e5c158] hover:text-amber-300 rounded-lg text-xs font-typewriter transition-colors cursor-pointer"
-              title={`Open ${activeStream.title} in Google Drive player`}
+              className="hidden lg:flex items-center gap-1 px-2 py-1 bg-[#25150f] hover:bg-[#382017] border border-[#4a2e20] text-[#e5c158] hover:text-amber-300 rounded-lg text-xs font-typewriter transition-colors cursor-pointer"
+              title={`Open ${activeStream.title} directly in Google Drive`}
             >
               <ExternalLink className="w-3.5 h-3.5" />
               <span>Pop-Out</span>
             </a>
 
+            {/* Toggle Fullscreen Cinema + Sidebar */}
             <button
-              onClick={() => setIsTheaterExpanded(!isTheaterExpanded)}
-              className="p-1.5 bg-[#25150f] hover:bg-[#382017] border border-[#4a2e20] text-[#cfb69b] hover:text-[#f5ebd4] rounded-lg transition-colors cursor-pointer"
-              title={isTheaterExpanded ? 'Normal Size' : 'Expand Theater View'}
+              onClick={handleToggleFullscreenCinema}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-typewriter border transition-all cursor-pointer ${
+                isFullscreenCinema 
+                  ? 'bg-[#3e2518] text-[#f5ebd4] border-[#6b3520]' 
+                  : 'bg-[#25150f] hover:bg-[#382017] border-[#4a2e20] text-[#e5c158] hover:text-amber-200'
+              }`}
+              title={isFullscreenCinema ? 'Exit Fullscreen Cinema' : 'Fullscreen Episode + Video Call Sidebar'}
             >
-              {isTheaterExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              <Columns className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{isFullscreenCinema ? 'Normal View' : 'Cinema + Sidebar'}</span>
             </button>
 
+            {/* Close Button */}
             <button
               onClick={onClose}
               className="p-1.5 bg-[#25150f] hover:bg-[#5a1c1c] border border-[#4a2e20] text-[#cfb69b] hover:text-red-300 rounded-lg transition-colors cursor-pointer"
@@ -689,123 +749,82 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
           </div>
         </div>
 
-        {/* Informative explanation banner */}
-        {showInfoBanner && (
-          <div className="bg-[#24130c] border-b border-[#44281a] px-4 py-1.5 flex items-center justify-between text-xs font-typewriter text-[#d8c5ad]">
-            <div className="flex items-center gap-2">
-              <Info className="w-4 h-4 text-[#e5c158] flex-shrink-0" />
-              <span>
-                <strong>Co-Watching Live:</strong> Pausing, resuming, or seeking will automatically update both of your screens. Talk freely with the microphone and webcam on the right!
-              </span>
-            </div>
-            <button 
-              onClick={() => setShowInfoBanner(false)}
-              className="text-[#8f745f] hover:text-[#f5ebd4] p-0.5 cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
+        {/* 2. Main Content: Unobstructed Video Stage (Left) + Video Call & Chat Sidebar (Right) */}
+        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden bg-[#0c0604] relative">
+          {/* Left: Google Drive Video Stage (Completely Unobstructed!) */}
+          <div className="flex-1 flex flex-col justify-between bg-black relative overflow-hidden">
+            {/* The Google Drive Video Screen (100% Unobstructed, No overlapping PiPs) */}
+            <div className="flex-1 w-full h-full relative bg-black flex items-center justify-center">
+              <iframe
+                key={activeStream.driveFileId}
+                src={activeStream.embedUrl}
+                title={`Twin Peaks ${activeStream.title} Video Stream`}
+                className="w-full h-full border-0"
+                allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                allowFullScreen
+              />
 
-        {/* 2. Main Content Grid: Video Stage (Left) + Live Video Call & Chat (Right) */}
-        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden bg-[#0c0604]">
-          {/* Left: Video Player Section */}
-          <div className="flex-1 flex flex-col justify-between bg-black relative overflow-hidden group">
-            {/* The Video Screen */}
-            <div className="flex-1 flex items-center justify-center relative bg-[#050302]">
-              {playerMode === 'drive-stream' ? (
-                /* Google Drive Transcoded Video Stream */
-                <div className="w-full h-full relative flex items-center justify-center">
-                  <iframe
-                    key={activeStream.driveFileId}
-                    src={activeStream.embedUrl}
-                    title={`Twin Peaks ${activeStream.title} Video Stream`}
-                    className="w-full h-full border-0"
-                    allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-                    allowFullScreen
-                  />
-                </div>
-              ) : (
-                /* Direct Synchronized HTML5 Video Mode */
-                <div className="w-full h-full flex flex-col items-center justify-center relative">
-                  <video
-                    ref={videoRef}
-                    key={`${activeStream.driveFileId}-${selectedEpisode}`}
-                    src={customVideoUrl || `/api/episodes/${selectedEpisode}/video`}
-                    preload="auto"
-                    playsInline
-                    controls={false}
-                    className="w-full h-full object-contain cursor-pointer"
-                    onTimeUpdate={() => {
-                      if (videoRef.current) {
-                        setCurrentTime(videoRef.current.currentTime);
-                      }
-                    }}
-                    onLoadedMetadata={() => {
-                      if (videoRef.current) {
-                        setDuration(videoRef.current.duration || activeStream.durationSeconds);
-                      }
-                    }}
-                    onPlay={() => {
-                      if (!isPlaying) handleTogglePlay();
-                    }}
-                    onPause={() => {
-                      if (isPlaying) handleTogglePlay();
-                    }}
-                  />
-                </div>
-              )}
-
-              {/* Synchronous 3-2-1 Countdown Overlay */}
+              {/* Synchronized 5-4-3-2-1 Countdown Overlay */}
               {countdownValue !== null && (
-                <div className="absolute inset-0 z-40 bg-black/85 flex flex-col items-center justify-center animate-fadeIn">
+                <div className="absolute inset-0 z-40 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center animate-fadeIn pointer-events-none select-none">
                   <div className="text-center">
-                    <div className="text-7xl sm:text-9xl font-display font-black text-[#e5c158] animate-ping duration-1000">
-                      {countdownValue > 0 ? countdownValue : 'GO!'}
+                    <div className="text-8xl sm:text-9xl font-display font-black text-[#e5c158] animate-ping duration-1000 drop-shadow-[0_0_35px_rgba(229,193,88,0.7)]">
+                      {countdownValue > 0 ? countdownValue : 'START!'}
                     </div>
-                    <div className="font-typewriter text-sm sm:text-base text-[#f5ebd4] tracking-widest mt-4 uppercase">
-                      Synchronized Playback Initiated by {countdownInitiator}
+                    <div className="font-typewriter text-base sm:text-xl text-[#fdf2f2] font-bold tracking-widest mt-6 uppercase bg-[#83161c] px-6 py-2 rounded-xl border border-[#b91c1c] shadow-2xl">
+                      {countdownValue > 0 
+                        ? `GET READY TO PRESS PLAY (${countdownInitiator})` 
+                        : '▶️ PRESS PLAY ON GOOGLE DRIVE RIGHT NOW!'}
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* High-Visibility Action Toast */}
+              {/* Action Toast Notification */}
               {actionToast && (
                 <div className="absolute top-4 inset-x-0 flex justify-center pointer-events-none z-30 animate-fadeIn">
-                  <div className="bg-[#1a0f0b]/95 border-2 border-[#b91c1c] text-[#fdf2f2] px-5 py-2 rounded-xl shadow-2xl font-typewriter text-xs sm:text-sm font-bold flex items-center gap-2 backdrop-blur-md">
+                  <div className="bg-[#1a0f0b]/95 border-2 border-[#b91c1c] text-[#fdf2f2] px-4 py-2 rounded-xl shadow-2xl font-typewriter text-xs sm:text-sm font-bold flex items-center gap-2 backdrop-blur-md">
                     <span>{actionToast.message}</span>
                   </div>
                 </div>
               )}
-
-              {/* Pause Notification Overlay when paused */}
-              {!isPlaying && pausedBy && (
-                <div className="absolute bottom-6 left-6 z-20 pointer-events-auto bg-[#1b0f0b]/95 border-2 border-amber-600/80 rounded-xl p-3 shadow-2xl backdrop-blur-md flex items-center gap-3 animate-fadeIn">
-                  <div className="p-2 bg-amber-950/80 border border-amber-600 rounded-lg text-amber-300">
-                    <Pause className="w-5 h-5 fill-current" />
-                  </div>
-                  <div>
-                    <div className="font-display text-xs text-[#f5ebd4] font-bold">
-                      Episode Paused by {pausedBy}
-                    </div>
-                    <div className="font-typewriter text-[11px] text-amber-200/90 font-mono">
-                      At {formatTime(currentTime)}
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleTogglePlay}
-                    className="bg-[#83161c] hover:bg-[#991b1b] text-[#fdf2f2] px-3.5 py-1.5 rounded-lg border border-[#b91c1c] text-xs font-typewriter uppercase tracking-wider font-bold transition-all cursor-pointer shadow hover:scale-105"
-                  >
-                    Resume for Both ▶
-                  </button>
-                </div>
-              )}
             </div>
 
-            {/* Synchronized Dual-Control Watch Bar & Timeline */}
-            <div className="bg-gradient-to-t from-[#140b08] via-[#1a0f0b]/98 to-[#160d09] p-3 sm:p-4 border-t border-[#3e2518] flex flex-col gap-2 z-10">
-              {/* Timeline Scrubber */}
+            {/* Synchronized Companion Watch Bar (Bottom Bar) */}
+            <div className="bg-[#160d09] border-t border-[#3e2518] px-3 sm:px-4 py-2 sm:py-2.5 flex flex-col gap-1.5 z-10">
+              {/* Ready Check & Instructions Strip */}
+              <div className="flex items-center justify-between flex-wrap gap-2 text-xs font-typewriter">
+                <div className="flex items-center gap-2 text-[#cfb69b]">
+                  <span className="flex items-center gap-1">
+                    <span className="font-bold">You:</span>
+                    {isSelfReady ? (
+                      <span className="text-emerald-400 font-bold flex items-center gap-0.5">
+                        <CheckCircle2 className="w-3 h-3" /> Ready
+                      </span>
+                    ) : (
+                      <span className="text-amber-400">Cue to 0:00</span>
+                    )}
+                  </span>
+                  <span className="text-[#5a3928]">•</span>
+                  <span className="flex items-center gap-1">
+                    <span className="font-bold">{partnerName}:</span>
+                    {isPartnerReady ? (
+                      <span className="text-emerald-400 font-bold flex items-center gap-0.5">
+                        <CheckCircle2 className="w-3 h-3" /> Ready
+                      </span>
+                    ) : (
+                      <span className="text-[#8f745f]">Waiting...</span>
+                    )}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 text-[11px] text-[#a08774] hidden sm:flex">
+                  <Info className="w-3.5 h-3.5 text-[#e5c158]" />
+                  <span>Cue episode to 0:00, then click "Start 5s Countdown" to press play together!</span>
+                </div>
+              </div>
+
+              {/* Timeline Scrubber & Controls */}
               <div className="flex items-center gap-3">
                 <span className="font-mono text-xs text-[#e5c158] w-14 text-right font-bold">
                   {formatTime(currentTime)}
@@ -824,66 +843,54 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
                 </span>
               </div>
 
-              {/* Controls row */}
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  {/* Primary Dual-Control Play / Pause */}
+              {/* Companion Stopwatch Control Buttons */}
+              <div className="flex items-center justify-between flex-wrap gap-2 pt-0.5">
+                <div className="flex items-center gap-1.5 sm:gap-2">
                   <button
                     onClick={handleTogglePlay}
-                    className={`px-4 py-2 rounded-lg border transition-all cursor-pointer shadow flex items-center gap-2 font-typewriter text-xs font-bold ${
+                    className={`px-3 py-1.5 rounded-lg border transition-all cursor-pointer shadow flex items-center gap-1.5 font-typewriter text-xs font-bold ${
                       isPlaying
                         ? 'bg-[#83161c] hover:bg-[#991b1b] text-[#fdf2f2] border-[#b91c1c]'
-                        : 'bg-[#065f46] hover:bg-[#047857] text-[#ecfdf5] border-[#059669] animate-pulse'
+                        : 'bg-[#065f46] hover:bg-[#047857] text-[#ecfdf5] border-[#059669]'
                     }`}
-                    title="Play or pause the episode simultaneously for both viewers"
+                    title="Play or pause synchronized stopwatch timer"
                   >
                     {isPlaying ? (
                       <>
-                        <Pause className="w-4 h-4 fill-current" />
-                        <span>Pause for Both</span>
+                        <Pause className="w-3.5 h-3.5 fill-current" />
+                        <span>Pause Stopwatch</span>
                       </>
                     ) : (
                       <>
-                        <Play className="w-4 h-4 fill-current" />
-                        <span>Play for Both</span>
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span>Resume Stopwatch</span>
                       </>
                     )}
                   </button>
 
-                  {/* Skip backward / forward */}
                   <button
-                    onClick={() => handleSkip(-10)}
-                    className="px-2.5 py-2 bg-[#25150f] hover:bg-[#382017] text-[#cfb69b] hover:text-[#f5ebd4] rounded-lg border border-[#44281a] text-xs font-mono transition-colors cursor-pointer"
-                    title="Rewind 10 seconds together"
-                  >
-                    -10s
-                  </button>
-                  <button
-                    onClick={() => handleSkip(10)}
-                    className="px-2.5 py-2 bg-[#25150f] hover:bg-[#382017] text-[#cfb69b] hover:text-[#f5ebd4] rounded-lg border border-[#44281a] text-xs font-mono transition-colors cursor-pointer"
-                    title="Fast forward 10 seconds together"
-                  >
-                    +10s
-                  </button>
-
-                  {/* 3-2-1 Synchronous Countdown Button */}
-                  <button
-                    onClick={handleTriggerCountdown}
-                    className="px-2.5 py-2 bg-[#25150f] hover:bg-[#382017] text-[#e5c158] hover:text-amber-200 rounded-lg border border-[#5a3928] text-xs font-typewriter transition-colors cursor-pointer flex items-center gap-1.5"
-                    title="Trigger a synchronized 3-2-1 audio countdown to start together"
+                    onClick={() => handleTriggerCountdown(5)}
+                    className="px-3 py-1.5 bg-[#25150f] hover:bg-[#382017] text-[#e5c158] hover:text-amber-200 rounded-lg border border-[#5a3928] text-xs font-typewriter transition-all cursor-pointer flex items-center gap-1 font-bold shadow"
+                    title="Start 5-second synchronized countdown"
                   >
                     <Timer className="w-3.5 h-3.5" />
-                    <span>Sync 3-2-1 Start</span>
+                    <span>5s Countdown</span>
                   </button>
 
-                  {/* Force Sync */}
                   <button
-                    onClick={() => broadcastPlayback(isPlaying, currentTime)}
-                    className="p-2 bg-[#25150f] hover:bg-[#382017] text-[#a08774] hover:text-[#e5c158] rounded-lg border border-[#44281a] text-xs font-typewriter transition-colors cursor-pointer flex items-center gap-1"
-                    title="Nudge partner to align exactly with this timecode"
+                    onClick={() => handleTriggerCountdown(3)}
+                    className="px-2.5 py-1.5 bg-[#25150f] hover:bg-[#382017] text-[#cfb69b] hover:text-[#f5ebd4] rounded-lg border border-[#44281a] text-xs font-typewriter transition-all cursor-pointer"
+                    title="Start 3-second quick countdown"
                   >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span className="hidden md:inline">Sync Now</span>
+                    3s Quick
+                  </button>
+
+                  <button
+                    onClick={handleResetTimer}
+                    className="p-1.5 bg-[#25150f] hover:bg-[#382017] text-[#cfb69b] hover:text-[#f5ebd4] rounded-lg border border-[#44281a] text-xs transition-colors cursor-pointer"
+                    title="Reset companion timer to 00:00"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
@@ -894,17 +901,17 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
                       const timeStamp = formatTime(currentTime);
                       if (onPinTheoryToBoard) {
                         onPinTheoryToBoard(
-                          `[Episode ${selectedEpisode} Timestamp ${timeStamp}] Suspect sighting or clue spotted during watch party!`,
+                          `[Episode ${selectedEpisode} Timestamp ${timeStamp}] Suspect observation or clue spotted during watch party!`,
                           timeStamp
                         );
                         setActionToast({
-                          message: `📌 Pinned timestamp ${timeStamp} to Board!`,
+                          message: `📌 Pinned timestamp ${timeStamp} to Corkboard!`,
                           timestamp: Date.now(),
                         });
                       }
                     }}
-                    className="px-3 py-2 bg-[#2e1910] hover:bg-[#422316] border border-[#5a3928] text-[#e5c158] hover:text-amber-200 rounded-lg text-xs font-typewriter transition-colors cursor-pointer flex items-center gap-1.5 shadow"
-                    title="Pin this exact timestamp as an investigation sticky note on the corkboard"
+                    className="px-2.5 sm:px-3 py-1.5 bg-[#2e1910] hover:bg-[#422316] border border-[#5a3928] text-[#e5c158] hover:text-amber-200 rounded-lg text-xs font-typewriter transition-colors cursor-pointer flex items-center gap-1.5 shadow"
+                    title="Pin this timecode directly to the corkboard"
                   >
                     <Pin className="w-3.5 h-3.5" />
                     <span>Pin Note @ {formatTime(currentTime)}</span>
@@ -914,33 +921,48 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
             </div>
           </div>
 
-          {/* Right: Live Video Call & Realtime Chat Sidebar */}
-          <div className="w-full lg:w-96 flex flex-col border-t lg:border-t-0 lg:border-l border-[#3e2518] bg-[#140b08]">
-            {/* Section A: Webcam & Audio Call Dock */}
-            <div className="bg-[#1a0f0b] border-b border-[#3e2518] p-3 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Tv className="w-4 h-4 text-red-500" />
-                  <span className="font-typewriter text-xs font-bold uppercase tracking-wider text-[#f5ebd4]">
-                    Sheriff Video Link
-                  </span>
-                  <span className={`w-2 h-2 rounded-full ${inCall ? 'bg-emerald-400 animate-ping' : 'bg-amber-600'}`} />
-                </div>
-                <button
-                  onClick={() => setIsWebcamDockMinimized(!isWebcamDockMinimized)}
-                  className="p-1 text-[#8f745f] hover:text-[#f5ebd4] rounded cursor-pointer"
-                  title={isWebcamDockMinimized ? 'Expand video call' : 'Minimize video call'}
-                >
-                  {isWebcamDockMinimized ? <Maximize2 className="w-3.5 h-3.5" /> : <Minimize2 className="w-3.5 h-3.5" />}
-                </button>
-              </div>
+          {/* Toggle Button when Sidebar is Collapsed in Fullscreen */}
+          {!isSidebarVisible && (
+            <button
+              onClick={() => setIsSidebarVisible(true)}
+              className="absolute top-4 right-4 z-40 bg-[#1a0f0b]/90 hover:bg-[#25150f] border-2 border-[#b91c1c] text-[#e5c158] px-3 py-2 rounded-xl text-xs font-typewriter flex items-center gap-2 shadow-2xl backdrop-blur-md cursor-pointer transition-all hover:scale-105"
+              title="Show Partner Video Call & Chat Sidebar"
+            >
+              <Video className="w-4 h-4 text-emerald-400" />
+              <span>Show Video Sidebar ({partnerName})</span>
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+          )}
 
-              {!isWebcamDockMinimized && (
+          {/* Right: Dedicated Video Call & Realtime Chat Sidebar (Never covers the video!) */}
+          {isSidebarVisible && (
+            <div className="w-full lg:w-80 xl:w-92 flex flex-col border-t lg:border-t-0 lg:border-l border-[#3e2518] bg-[#140b08] z-20 flex-shrink-0">
+              {/* Section A: Live Video Call Dock */}
+              <div className="bg-[#1a0f0b] border-b border-[#3e2518] p-3 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Tv className="w-4 h-4 text-red-500" />
+                    <span className="font-typewriter text-xs font-bold uppercase tracking-wider text-[#f5ebd4]">
+                      Sheriff Video Call
+                    </span>
+                    <span className={`w-2 h-2 rounded-full ${inCall ? 'bg-emerald-400 animate-ping' : 'bg-amber-600'}`} />
+                  </div>
+
+                  <button
+                    onClick={() => setIsSidebarVisible(false)}
+                    className="text-[#8f745f] hover:text-[#f5ebd4] p-1 rounded transition-colors cursor-pointer"
+                    title="Collapse sidebar to maximize video"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Video Screens */}
                 <div className="space-y-2">
                   {inCall ? (
-                    <div className="grid grid-cols-2 gap-2 aspect-[16/7] bg-black rounded-lg overflow-hidden border border-[#3e2518]">
-                      {/* Partner Remote Webcam Screen */}
-                      <div className="relative bg-[#0d0705] flex items-center justify-center overflow-hidden">
+                    <div className="flex flex-col gap-2">
+                      {/* Partner Remote Video (Prominent Display) */}
+                      <div className="relative aspect-[16/10] bg-black rounded-lg overflow-hidden border border-[#4a2e20] shadow-inner flex items-center justify-center">
                         <video
                           ref={handleRemoteWebcamRef}
                           autoPlay
@@ -948,20 +970,24 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
                           className="w-full h-full object-cover"
                         />
                         {!remoteStream && (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center p-2 text-center pointer-events-none">
-                            <span className="text-xl mb-1 animate-bounce">🦉</span>
-                            <span className="font-typewriter text-[10px] text-[#cfb69b]">
+                          <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center bg-[#0d0705]">
+                            <span className="text-2xl mb-1 animate-bounce">🦉</span>
+                            <span className="font-typewriter text-xs text-[#cfb69b] font-bold">
                               Connecting to {partnerName}...
+                            </span>
+                            <span className="font-editorial italic text-[11px] text-[#8e7360] mt-0.5">
+                              The owls are not what they seem
                             </span>
                           </div>
                         )}
-                        <div className="absolute bottom-1 left-1 bg-black/70 text-[9px] font-typewriter text-[#e5c158] px-1.5 py-0.5 rounded">
-                          {partnerName}
+                        <div className="absolute bottom-1.5 left-1.5 bg-black/80 text-[10px] font-typewriter text-[#e5c158] px-2 py-0.5 rounded border border-[#3e2518] flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <span>{partnerName}</span>
                         </div>
                       </div>
 
-                      {/* Your Own Local Webcam Screen */}
-                      <div className="relative bg-[#0d0705] flex items-center justify-center overflow-hidden">
+                      {/* Your Own Local Camera Preview & Controls */}
+                      <div className="relative aspect-[16/6] bg-[#0d0705] rounded-lg overflow-hidden border border-[#3e2518] flex items-center justify-center">
                         <video
                           ref={handleLocalWebcamRef}
                           autoPlay
@@ -970,75 +996,68 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
                           className="w-full h-full object-cover transform -scale-x-100"
                         />
                         {isVideoOff && (
-                          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-[10px] font-typewriter text-red-300">
-                            <VideoOff className="w-4 h-4 mb-1 text-red-400" />
+                          <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center text-[10px] font-typewriter text-red-300">
+                            <VideoOff className="w-4 h-4 mb-0.5 text-red-400" />
                             <span>Camera Off</span>
                           </div>
                         )}
-                        <div className="absolute bottom-1 right-1 bg-black/70 text-[9px] font-typewriter text-[#d8c5ad] px-1.5 py-0.5 rounded flex items-center gap-1">
-                          {isAudioMuted ? <MicOff className="w-2.5 h-2.5 text-red-400" /> : <Mic className="w-2.5 h-2.5 text-emerald-400" />}
-                          <span>You</span>
+                        <div className="absolute bottom-1 left-1.5 bg-black/80 text-[9px] font-typewriter text-[#d8c5ad] px-1.5 py-0.5 rounded">
+                          You ({currentUser.name})
                         </div>
+
+                        {/* Quick Controls in Local Cam */}
+                        <div className="absolute bottom-1 right-1.5 flex items-center gap-1">
+                          <button
+                            onClick={toggleMic}
+                            className={`p-1 rounded text-[10px] font-typewriter cursor-pointer ${
+                              isAudioMuted ? 'bg-red-900 text-red-200' : 'bg-black/80 text-emerald-300'
+                            }`}
+                            title={isAudioMuted ? 'Unmute' : 'Mute'}
+                          >
+                            {isAudioMuted ? <MicOff className="w-3 h-3" /> : <Mic className="w-3 h-3" />}
+                          </button>
+                          <button
+                            onClick={toggleCamera}
+                            className={`p-1 rounded text-[10px] font-typewriter cursor-pointer ${
+                              isVideoOff ? 'bg-red-900 text-red-200' : 'bg-black/80 text-emerald-300'
+                            }`}
+                            title={isVideoOff ? 'Turn Cam On' : 'Turn Cam Off'}
+                          >
+                            {isVideoOff ? <VideoOff className="w-3 h-3" /> : <Video className="w-3 h-3" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Disconnect button */}
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[10px] font-typewriter text-[#8f745f]">
+                          WebRTC Voice & Video Active
+                        </span>
+                        <button
+                          onClick={endCall}
+                          className="bg-red-950/80 hover:bg-red-900 text-red-200 border border-red-800 px-2.5 py-1 rounded text-[11px] font-typewriter flex items-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <PhoneOff className="w-3 h-3" />
+                          <span>End Call</span>
+                        </button>
                       </div>
                     </div>
                   ) : (
-                    /* Inactive Call Placeholder with Start Call Button */
+                    /* Start Call Panel */
                     <div className="bg-[#120906] border border-[#3e2518] rounded-lg p-3 text-center flex flex-col items-center justify-center">
                       <p className="font-typewriter text-xs text-[#d8c5ad] mb-2 font-bold">
-                        Talk and see each other while watching!
+                        Co-Watch with {partnerName} on Camera!
                       </p>
                       <button
                         onClick={() => startCall()}
                         className="bg-[#83161c] hover:bg-[#991b1b] text-[#fdf2f2] px-4 py-2 rounded-lg border border-[#b91c1c] font-typewriter text-xs uppercase tracking-wider font-bold shadow transition-all cursor-pointer flex items-center gap-2 hover:scale-105"
                       >
                         <PhoneCall className="w-3.5 h-3.5 text-amber-300" />
-                        <span>Start Video & Voice Link</span>
+                        <span>Start Video Call</span>
                       </button>
-                      <p className="font-editorial italic text-[11px] text-[#8e7360] mt-1.5">
-                        Peer-to-peer WebRTC video with camera & microphone controls
+                      <p className="font-editorial italic text-[10px] text-[#8e7360] mt-1.5">
+                        Private peer-to-peer audio & video call
                       </p>
-                    </div>
-                  )}
-
-                  {/* Camera, Microphone & Call Controls Toolbar */}
-                  {inCall && (
-                    <div className="flex items-center justify-between pt-1">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={toggleMic}
-                          className={`px-3 py-1.5 rounded-lg border text-xs font-typewriter flex items-center gap-1.5 transition-colors cursor-pointer ${
-                            isAudioMuted
-                              ? 'bg-red-950 border-red-700 text-red-200'
-                              : 'bg-[#2a170f] border-[#4a2e20] hover:bg-[#382017] text-[#f5ebd4]'
-                          }`}
-                          title={isAudioMuted ? 'Turn microphone ON' : 'Turn microphone OFF (Mute)'}
-                        >
-                          {isAudioMuted ? <MicOff className="w-3.5 h-3.5 text-red-400" /> : <Mic className="w-3.5 h-3.5 text-emerald-400" />}
-                          <span>{isAudioMuted ? 'Mic Muted' : 'Mic ON'}</span>
-                        </button>
-
-                        <button
-                          onClick={toggleCamera}
-                          className={`px-3 py-1.5 rounded-lg border text-xs font-typewriter flex items-center gap-1.5 transition-colors cursor-pointer ${
-                            isVideoOff
-                              ? 'bg-red-950 border-red-700 text-red-200'
-                              : 'bg-[#2a170f] border-[#4a2e20] hover:bg-[#382017] text-[#f5ebd4]'
-                          }`}
-                          title={isVideoOff ? 'Turn camera ON' : 'Turn camera OFF'}
-                        >
-                          {isVideoOff ? <VideoOff className="w-3.5 h-3.5 text-red-400" /> : <Video className="w-3.5 h-3.5 text-emerald-400" />}
-                          <span>{isVideoOff ? 'Cam Off' : 'Cam ON'}</span>
-                        </button>
-                      </div>
-
-                      <button
-                        onClick={endCall}
-                        className="bg-red-950/80 hover:bg-red-900 text-red-200 border border-red-800 px-3 py-1.5 rounded-lg text-xs font-typewriter flex items-center gap-1 cursor-pointer transition-colors"
-                        title="Disconnect video call"
-                      >
-                        <PhoneOff className="w-3.5 h-3.5" />
-                        <span>Disconnect</span>
-                      </button>
                     </div>
                   )}
 
@@ -1049,121 +1068,130 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-
-            {/* Section B: Synchronized Live Chat & Theory Clues Log */}
-            <div className="flex-1 flex flex-col justify-between overflow-hidden bg-[#160d09]">
-              {/* Chat Header */}
-              <div className="px-3 py-2 bg-[#1e120d] border-b border-[#382216] flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-[#e5c158]" />
-                  <span className="font-typewriter text-xs uppercase font-bold text-[#f5ebd4] tracking-wider">
-                    Episode Discussion & Clues
-                  </span>
-                </div>
-                <span className="text-[10px] font-mono text-emerald-400">
-                  ● Real-Time WebSocket
-                </span>
               </div>
 
-              {/* Message List */}
-              <div
-                ref={chatScrollRef}
-                className="flex-1 overflow-y-auto p-3 space-y-3 font-typewriter text-xs"
-              >
-                {messages.map((msg) => {
-                  const isSelf = msg.sender_email === currentUser.email;
-                  return (
-                    <div
-                      key={msg.id}
-                      className={`flex flex-col ${isSelf ? 'items-end' : 'items-start'} animate-fadeIn`}
-                    >
-                      <div className="flex items-center gap-1.5 mb-0.5 text-[10px] text-[#a08774]">
-                        <span className="font-bold text-[#cfb69b]">{msg.sender_name}</span>
-                        {msg.video_time !== undefined && (
-                          <span className="text-[#e5c158] font-mono bg-[#25150f] px-1 rounded">
-                            @{formatTime(msg.video_time)}
-                          </span>
-                        )}
-                      </div>
-                      <div
-                        className={`p-2.5 rounded-xl max-w-[88%] break-words relative shadow ${
-                          msg.is_theory_clue
-                            ? 'bg-[#2d1b09] border border-amber-600/70 text-amber-100'
-                            : isSelf
-                            ? 'bg-[#83161c] text-[#fdf2f2] border border-[#b91c1c]'
-                            : 'bg-[#20130d] text-[#e8dfd8] border border-[#3e2518]'
-                        }`}
-                      >
-                        {msg.is_theory_clue && (
-                          <div className="flex items-center gap-1 text-[10px] text-amber-300 font-bold mb-1 uppercase tracking-wider">
-                            <Sparkles className="w-3 h-3" />
-                            <span>Theory / Clue Observation</span>
-                          </div>
-                        )}
-                        <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+              {/* Section B: Synchronized Live Chat & Theory Clues Log */}
+              <div className="flex-1 flex flex-col justify-between overflow-hidden bg-[#160d09]">
+                {/* Chat Header */}
+                <div className="px-3 py-2 bg-[#1e120d] border-b border-[#382216] flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="w-3.5 h-3.5 text-[#e5c158]" />
+                    <span className="font-typewriter text-xs uppercase font-bold text-[#f5ebd4] tracking-wider">
+                      Case Discussion & Notes
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono text-emerald-400">
+                    ● Real-Time
+                  </span>
+                </div>
 
-                        {/* Quick action to pin theory to corkboard */}
-                        {onPinTheoryToBoard && (
-                          <button
-                            onClick={() => handlePinClueToBoard(msg)}
-                            className="mt-1.5 text-[10px] text-amber-300 hover:text-white flex items-center gap-1 bg-black/40 px-1.5 py-0.5 rounded cursor-pointer transition-colors"
-                            title="Pin this clue to the active investigation board"
-                          >
-                            <Pin className="w-2.5 h-2.5" />
-                            <span>Pin to Board</span>
-                          </button>
-                        )}
-                      </div>
+                {/* Message List */}
+                <div
+                  ref={chatScrollRef}
+                  className="flex-1 overflow-y-auto p-3 space-y-2.5 font-typewriter text-xs"
+                >
+                  {messages.length === 0 && (
+                    <div className="h-full flex flex-col items-center justify-center text-center p-4 text-[#8f745f]">
+                      <Sparkles className="w-5 h-5 mb-1 text-[#e5c158]/50" />
+                      <p className="text-xs font-typewriter">No notes yet.</p>
+                      <p className="text-[11px] font-editorial italic mt-1 text-[#a08774]">
+                        Discuss suspects or pin timestamps as you watch together!
+                      </p>
                     </div>
-                  );
-                })}
-              </div>
+                  )}
 
-              {/* Chat Input Bar */}
-              <form
-                onSubmit={handleSendMessage}
-                className="p-2.5 bg-[#1a0f0b] border-t border-[#382216] flex flex-col gap-2"
-              >
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-1.5 text-[11px] font-typewriter text-[#d8c5ad] cursor-pointer">
+                  {messages.map((msg) => {
+                    const isSelf = msg.sender_email === currentUser.email;
+                    return (
+                      <div
+                        key={msg.id}
+                        className={`flex flex-col ${isSelf ? 'items-end' : 'items-start'} animate-fadeIn`}
+                      >
+                        <div className="flex items-center gap-1.5 mb-0.5 text-[10px] text-[#a08774]">
+                          <span className="font-bold text-[#cfb69b]">{msg.sender_name}</span>
+                          {msg.video_time !== undefined && (
+                            <span className="text-[#e5c158] font-mono bg-[#25150f] px-1 rounded">
+                              @{formatTime(msg.video_time)}
+                            </span>
+                          )}
+                        </div>
+                        <div
+                          className={`p-2.5 rounded-xl max-w-[90%] break-words relative shadow ${
+                            msg.is_theory_clue
+                              ? 'bg-[#2d1b09] border border-amber-600/70 text-amber-100'
+                              : isSelf
+                              ? 'bg-[#83161c] text-[#fdf2f2] border border-[#b91c1c]'
+                              : 'bg-[#20130d] text-[#e8dfd8] border border-[#3e2518]'
+                          }`}
+                        >
+                          {msg.is_theory_clue && (
+                            <div className="flex items-center gap-1 text-[10px] text-amber-300 font-bold mb-1 uppercase tracking-wider">
+                              <Sparkles className="w-3 h-3" />
+                              <span>Clue Observation</span>
+                            </div>
+                          )}
+                          <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+
+                          {onPinTheoryToBoard && (
+                            <button
+                              onClick={() => handlePinClueToBoard(msg)}
+                              className="mt-1.5 text-[10px] text-amber-300 hover:text-white flex items-center gap-1 bg-black/40 px-1.5 py-0.5 rounded cursor-pointer transition-colors"
+                              title="Pin this clue to the active investigation board"
+                            >
+                              <Pin className="w-2.5 h-2.5" />
+                              <span>Pin to Corkboard</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Chat Input Bar */}
+                <form
+                  onSubmit={handleSendMessage}
+                  className="p-2.5 bg-[#1a0f0b] border-t border-[#382216] flex flex-col gap-1.5"
+                >
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-1.5 text-[11px] font-typewriter text-[#d8c5ad] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isTheoryClue}
+                        onChange={(e) => setIsTheoryClue(e.target.checked)}
+                        className="accent-[#b91c1c] rounded"
+                      />
+                      <span>Mark as Clue</span>
+                    </label>
+                    <span className="text-[10px] font-mono text-[#8f745f]">
+                      Timecode @ {formatTime(currentTime)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
                     <input
-                      type="checkbox"
-                      checked={isTheoryClue}
-                      onChange={(e) => setIsTheoryClue(e.target.checked)}
-                      className="accent-[#b91c1c] rounded"
+                      type="text"
+                      value={inputMsg}
+                      onChange={(e) => setInputMsg(e.target.value)}
+                      placeholder={
+                        isTheoryClue
+                          ? 'Note a clue at this timestamp...'
+                          : 'Discuss scene with partner...'
+                      }
+                      className="flex-1 bg-[#25150f] border border-[#4a2e20] rounded-lg px-3 py-1.5 text-xs font-typewriter text-[#f5ebd4] placeholder-[#8f745f] focus:outline-none focus:border-[#b91c1c]"
                     />
-                    <span>Mark as Case Clue</span>
-                  </label>
-                  <span className="text-[10px] font-mono text-[#8f745f]">
-                    Timecode @ {formatTime(currentTime)}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={inputMsg}
-                    onChange={(e) => setInputMsg(e.target.value)}
-                    placeholder={
-                      isTheoryClue
-                        ? 'Record clue observation at current timestamp...'
-                        : 'Discuss scene with partner...'
-                    }
-                    className="flex-1 bg-[#25150f] border border-[#4a2e20] rounded-lg px-3 py-2 text-xs font-typewriter text-[#f5ebd4] placeholder-[#8f745f] focus:outline-none focus:border-[#b91c1c]"
-                  />
-                  <button
-                    type="submit"
-                    className="p-2 bg-[#83161c] hover:bg-[#991b1b] border border-[#b91c1c] text-[#fdf2f2] rounded-lg transition-colors cursor-pointer"
-                    title="Send message"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </div>
-              </form>
+                    <button
+                      type="submit"
+                      className="p-2 bg-[#83161c] hover:bg-[#991b1b] border border-[#b91c1c] text-[#fdf2f2] rounded-lg transition-colors cursor-pointer"
+                      title="Send message"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

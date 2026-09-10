@@ -1,0 +1,157 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #f3ece4;
+    background-color: #0d0909;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: 'Cinzel', serif;
+  }
+
+  .font-typewriter {
+    font-family: 'Special Elite', monospace;
+  }
+
+  .font-editorial {
+    font-family: 'Newsreader', serif;
+  }
+}
+
+/* Black Lodge Zigzag Chevron */
+.bg-black-lodge-chevron {
+  background-color: #0d0d0d;
+  background-image: 
+    linear-gradient(135deg, #1c1c1c 25%, transparent 25%), 
+    linear-gradient(225deg, #1c1c1c 25%, transparent 25%), 
+    linear-gradient(315deg, #1c1c1c 25%, transparent 25%), 
+    linear-gradient(45deg, #1c1c1c 25%, transparent 25%);
+  background-position: -24px 0, -24px 0, 0 0, 0 0;
+  background-size: 48px 48px;
+  background-repeat: repeat;
+}
+
+.bg-lodge-chevron-sharp {
+  background-color: #0c0b0b;
+  background-image: repeating-linear-gradient(
+    45deg,
+    #181616 0px,
+    #181616 16px,
+    #050505 16px,
+    #050505 32px
+  );
+}
+
+/* Authentic Red Velvet Curtain Ripple */
+.bg-red-curtain {
+  background: repeating-linear-gradient(
+    90deg,
+    #250406 0px,
+    #4a080d 18px,
+    #7a1017 36px,
+    #99141f 48px,
+    #580b11 64px,
+    #250406 80px
+  );
+  box-shadow: inset 0 -20px 40px rgba(0, 0, 0, 0.8), inset 0 20px 30px rgba(0, 0, 0, 0.7);
+}
+
+/* Corkboard Texture */
+.bg-corkboard {
+  background-color: #241610;
+  background-image: 
+    radial-gradient(#3a2318 15%, transparent 16%), 
+    radial-gradient(#1f120c 15%, transparent 16%),
+    linear-gradient(45deg, rgba(30, 18, 12, 0.6) 0%, rgba(45, 28, 19, 0.6) 100%);
+  background-size: 28px 28px, 28px 28px, 100% 100%;
+  background-position: 0 0, 14px 14px, 0 0;
+}
+
+/* Douglas Fir Wood Frame */
+.border-wood-frame {
+  border: 12px solid #361f14;
+  box-shadow: 
+    inset 0 0 15px rgba(0, 0, 0, 0.9),
+    0 10px 30px rgba(0, 0, 0, 0.8),
+    inset 2px 2px 0 rgba(110, 68, 43, 0.3);
+}
+
+/* Neon Twin Peaks Signs Glow */
+.neon-glow-red {
+  text-shadow: 0 0 5px #ef4444, 0 0 15px #dc2626, 0 0 30px #991b1b;
+}
+
+.neon-glow-amber {
+  text-shadow: 0 0 5px #f59e0b, 0 0 15px #d97706, 0 0 25px #b45309;
+}
+
+.neon-box-red {
+  box-shadow: 0 0 15px rgba(220, 38, 38, 0.35), inset 0 0 15px rgba(220, 38, 38, 0.2);
+}
+
+.neon-box-amber {
+  box-shadow: 0 0 15px rgba(245, 158, 11, 0.35), inset 0 0 15px rgba(245, 158, 11, 0.15);
+}
+
+/* Subtle VHS Scanline & Film Grain Overlay */
+.vhs-overlay {
+  position: relative;
+}
+.vhs-overlay::after {
+  content: " ";
+  display: block;
+  position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+  background-size: 100% 4px;
+  z-index: 40;
+  pointer-events: none;
+  opacity: 0.35;
+}
+
+/* Pushpin Visual Elements */
+.pushpin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.6), inset -2px -2px 3px rgba(0, 0, 0, 0.4), inset 2px 2px 3px rgba(255, 255, 255, 0.6);
+  z-index: 20;
+}
+.pushpin::after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  left: 5px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.5);
+}
+
+.pushpin-crimson { background: radial-gradient(circle at 35% 35%, #f87171, #b91c1c 70%, #7f1d1d); }
+.pushpin-gold { background: radial-gradient(circle at 35% 35%, #fde047, #d97706 70%, #78350f); }
+.pushpin-forest { background: radial-gradient(circle at 35% 35%, #4ade80, #15803d 70%, #064e3b); }
+.pushpin-cyan { background: radial-gradient(circle at 35% 35%, #67e8f9, #0e7490 70%, #164e63); }
+.pushpin-purple { background: radial-gradient(circle at 35% 35%, #d8b4fe, #7e22ce 70%, #581c87); }
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #140d09;
+}
+::-webkit-scrollbar-thumb {
+  background: #3e261a;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #613b28;
+}

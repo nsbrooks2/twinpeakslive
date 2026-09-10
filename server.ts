@@ -1,0 +1,1082 @@
+import express from 'express';
+import http from 'http';
+import path from 'path';
+import fs from 'fs';
+import https from 'https';
+import { WebSocketServer, WebSocket } from 'ws';
+import { createServer as createViteServer } from 'vite';
+
+const app = express();
+const server = http.createServer(app);
+const PORT = 3000;
+const DATA_DIR = path.join(process.cwd(), 'data');
+const DB_FILE = path.join(DATA_DIR, 'db.json');
+
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+// Ensure episodes cache directory exists
+const EPISODES_CACHE_DIR = path.join('/tmp', 'episodes');
+if (!fs.existsSync(EPISODES_CACHE_DIR)) {
+  fs.mkdirSync(EPISODES_CACHE_DIR, { recursive: true });
+}
+
+interface DatabaseSchema {
+  users: any[];
+  boards: any[];
+  cards: any[];
+  strings: any[];
+  stickies: any[];
+  chat: Record<string, any[]>;
+  screeningState: {
+    isOpen: boolean;
+    episodeNumber: number;
+    isPlaying: boolean;
+    currentTime: number;
+    updatedBy: string;
+    updatedAt: number;
+  };
+}
+
+const DEFAULT_DB: DatabaseSchema = {
+  users: [
+    {
+      id: 'user-cooper',
+      name: 'Agent Dale Cooper',
+      email: 'nsbrooks23@gmail.com',
+      avatar: '☕',
+      badge_title: 'Special Agent, FBI',
+      department: 'Federal Bureau of Investigation',
+      favorite_quote: 'Damn fine cup of coffee!',
+      created_at: new Date('2026-09-01T08:00:00Z').toISOString(),
+      last_login: new Date().toISOString(),
+    },
+    {
+      id: 'user-girlfriend',
+      name: 'Special Investigator',
+      email: 'partner@twinpeaks.private',
+      avatar: '🌲',
+      badge_title: 'Lead Detective / Co-Investigator',
+      department: 'Twin Peaks Sheriff Dispatch',
+      favorite_quote: 'The owls are not what they seem.',
+      created_at: new Date('2026-09-01T08:00:00Z').toISOString(),
+      last_login: new Date().toISOString(),
+    },
+    {
+      id: 'user-truman',
+      name: 'Sheriff Harry S. Truman',
+      email: 'truman@twinpeaks.gov',
+      avatar: '⭐',
+      badge_title: 'Sheriff',
+      department: 'Twin Peaks Sheriff Department',
+      favorite_quote: 'There’s a sort of evil out there.',
+      created_at: new Date('2026-09-01T08:00:00Z').toISOString(),
+      last_login: new Date().toISOString(),
+    }
+  ],
+  boards: [
+    {
+      id: 'episode-1-pilot',
+      title: 'Episode 1: Pilot (Northwest Passage)',
+      episode_number: 1,
+      created_at: new Date('2026-09-01T08:00:00Z').toISOString(),
+      updated_at: new Date('2026-09-01T10:30:00Z').toISOString(),
+      description: 'The discovery of Laura Palmer wrapped in plastic by the Packard Sawmill shore. Official investigation opened.'
+    },
+    {
+      id: 'episode-2-traces-to-nowhere',
+      title: 'Episode 2: Traces to Nowhere',
+      episode_number: 2,
+      created_at: new Date('2026-09-02T08:00:00Z').toISOString(),
+      updated_at: new Date('2026-09-02T10:00:00Z').toISOString(),
+      description: 'Agent Cooper questions James Hurley; visits to the Horne department store and Leo Johnson’s house. The Log Lady shares cryptic warnings.'
+    },
+    {
+      id: 'episode-3-zen-skill',
+      title: 'Episode 3: Zen, or the Skill to Catch a Killer',
+      episode_number: 3,
+      created_at: new Date('2026-09-03T08:00:00Z').toISOString(),
+      updated_at: new Date('2026-09-03T10:00:00Z').toISOString(),
+      description: 'Agent Cooper demonstrates his deductive Tibetan rock-throwing technique in the woods. Cooper later experiences his iconic dream in the Red Room with the Man from Another Place and Laura Palmer.'
+    },
+    {
+      id: 'episode-4-rest-in-pain',
+      title: 'Episode 4: Rest in Pain',
+      episode_number: 4,
+      created_at: new Date('2026-09-04T08:00:00Z').toISOString(),
+      updated_at: new Date('2026-09-04T10:00:00Z').toISOString(),
+      description: 'The town gathers for Laura Palmer’s heartbreaking funeral, erupting into family heartbreak and chaos at the cemetery. Cooper learns of the Bookhouse Boys secret society.'
+    },
+    {
+      id: 'episode-5-the-one-armed-man',
+      title: 'Episode 5: The One-Armed Man',
+      episode_number: 5,
+      created_at: new Date('2026-09-05T08:00:00Z').toISOString(),
+      updated_at: new Date('2026-09-05T10:00:00Z').toISOString(),
+      description: 'Cooper and Truman question the One-Armed Man (Phillip Gerard) and track veterinarian records for a mysterious bird. Audrey Horne goes undercover at One Eyed Jacks.'
+    }
+  ],
+  cards: [],
+  strings: [],
+  stickies: [],
+  chat: {
+    'episode-1-pilot': [
+      {
+        id: 'init-1',
+        sender_name: 'Special Agent Cooper',
+        sender_email: 'cooper@twinpeaks.fbi',
+        timestamp: new Date().toISOString(),
+        video_time: 0,
+        text: 'Diane, 11:30 AM, February 24th. Entering the town of Twin Peaks. 5 miles south of the Canadian border.',
+        is_theory_clue: true,
+      },
+      {
+        id: 'init-2',
+        sender_name: 'Sheriff Truman',
+        sender_email: 'truman@twinpeaks.gov',
+        timestamp: new Date().toISOString(),
+        video_time: 145,
+        text: 'Pete Martell found a body by the logs near Blue Pine Lodge. Wrapped in plastic.',
+        is_theory_clue: true,
+      }
+    ]
+  },
+  screeningState: {
+    isOpen: false,
+    episodeNumber: 1,
+    isPlaying: false,
+    currentTime: 0,
+    updatedBy: 'System',
+    updatedAt: Date.now()
+  }
+};
+
+let db: DatabaseSchema = { ...DEFAULT_DB };
+
+// Load database from disk if available
+function loadDatabase() {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      const data = fs.readFileSync(DB_FILE, 'utf8');
+      const parsed = JSON.parse(data);
+      db = {
+        users: parsed.users || DEFAULT_DB.users,
+        boards: parsed.boards || DEFAULT_DB.boards,
+        cards: parsed.cards || DEFAULT_DB.cards,
+        strings: parsed.strings || DEFAULT_DB.strings,
+        stickies: parsed.stickies || DEFAULT_DB.stickies,
+        chat: parsed.chat || DEFAULT_DB.chat,
+        screeningState: parsed.screeningState || DEFAULT_DB.screeningState,
+      };
+
+      // Ensure default accounts exist if missing
+      for (const defUser of DEFAULT_DB.users) {
+        if (!db.users.some((u) => u.email.toLowerCase() === defUser.email.toLowerCase())) {
+          db.users.push(defUser);
+        }
+      }
+
+      // Ensure all canonical episode boards exist
+      for (const defBoard of DEFAULT_DB.boards) {
+        if (!db.boards.some((b) => b.id === defBoard.id || b.episode_number === defBoard.episode_number)) {
+          db.boards.push(defBoard);
+        }
+      }
+      saveDatabaseImmediate();
+      console.log(`[Database] Loaded ${db.boards.length} boards, ${db.cards.length} cards, ${db.strings.length} strings, ${db.stickies.length} stickies from disk.`);
+    } else {
+      saveDatabaseImmediate();
+      console.log('[Database] Initialized new database file.');
+    }
+  } catch (err) {
+    console.error('[Database] Failed to read db.json, using defaults:', err);
+  }
+}
+
+// Debounced save
+let saveTimer: NodeJS.Timeout | null = null;
+function scheduleSaveDatabase() {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveDatabaseImmediate();
+  }, 300);
+}
+
+function saveDatabaseImmediate() {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[Database] Error saving to disk:', err);
+  }
+}
+
+loadDatabase();
+
+// Middleware
+app.use(express.json());
+
+// Track online users
+interface ConnectedUser {
+  ws: WebSocket;
+  id: string;
+  name: string;
+  email: string;
+  role?: string;
+  activeBoardId: string;
+  isWatching: boolean;
+  connectedAt: number;
+  lastPing: number;
+}
+
+const connectedUsers = new Map<WebSocket, ConnectedUser>();
+
+// WebSocket Server
+const wss = new WebSocketServer({ server, path: '/ws' });
+
+function getPublicOnlineUsers() {
+  const users: any[] = [];
+  const seenEmails = new Set<string>();
+  connectedUsers.forEach((u) => {
+    if (!seenEmails.has(u.email)) {
+      seenEmails.add(u.email);
+      users.push({
+        user_id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role || 'Investigator',
+        activeBoardId: u.activeBoardId,
+        isWatching: u.isWatching,
+        connectedAt: u.connectedAt,
+      });
+    }
+  });
+  return users;
+}
+
+function broadcastToAll(msg: any) {
+  const raw = JSON.stringify(msg);
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(raw);
+    }
+  });
+}
+
+function broadcastToOthers(senderWs: WebSocket, msg: any) {
+  const raw = JSON.stringify(msg);
+  wss.clients.forEach((client) => {
+    if (client !== senderWs && client.readyState === WebSocket.OPEN) {
+      client.send(raw);
+    }
+  });
+}
+
+wss.on('connection', (ws: WebSocket) => {
+  // Send initial state & presence
+  ws.send(
+    JSON.stringify({
+      type: 'server:init',
+      payload: {
+        onlineUsers: getPublicOnlineUsers(),
+        screeningState: db.screeningState,
+      },
+    })
+  );
+
+  ws.on('message', (raw: string) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+      switch (msg.type) {
+        case 'presence:join': {
+          const user = msg.payload?.user;
+          const boardId = msg.payload?.boardId || 'episode-1-pilot';
+          if (user) {
+            connectedUsers.set(ws, {
+              ws,
+              id: user.user_id || user.email,
+              name: user.name,
+              email: user.email,
+              role: user.role,
+              activeBoardId: boardId,
+              isWatching: !!msg.payload?.isWatching,
+              connectedAt: Date.now(),
+              lastPing: Date.now(),
+            });
+            // Broadcast updated presence to all
+            broadcastToAll({
+              type: 'presence:update',
+              payload: { onlineUsers: getPublicOnlineUsers() },
+            });
+          }
+          break;
+        }
+
+        case 'presence:activity': {
+          const u = connectedUsers.get(ws);
+          if (u) {
+            if (msg.payload?.activeBoardId) u.activeBoardId = msg.payload.activeBoardId;
+            if (msg.payload?.isWatching !== undefined) u.isWatching = msg.payload.isWatching;
+            u.lastPing = Date.now();
+            broadcastToAll({
+              type: 'presence:update',
+              payload: { onlineUsers: getPublicOnlineUsers() },
+            });
+          }
+          break;
+        }
+
+        // Board synchronization events
+        case 'card:move': {
+          const { id, x, y, boardId } = msg.payload;
+          const card = db.cards.find((c) => c.id === id);
+          if (card) {
+            card.x = x;
+            card.y = y;
+            card.updated_at = new Date().toISOString();
+            scheduleSaveDatabase();
+          }
+          broadcastToOthers(ws, msg);
+          break;
+        }
+
+        case 'card:upsert': {
+          const { card } = msg.payload;
+          if (card) {
+            const idx = db.cards.findIndex((c) => c.id === card.id);
+            if (idx >= 0) {
+              db.cards[idx] = card;
+            } else {
+              db.cards.push(card);
+            }
+            scheduleSaveDatabase();
+          }
+          broadcastToOthers(ws, msg);
+          break;
+        }
+
+        case 'card:delete': {
+          const { id } = msg.payload;
+          db.cards = db.cards.filter((c) => c.id !== id);
+          db.strings = db.strings.filter((s) => s.source_id !== id && s.target_id !== id);
+          scheduleSaveDatabase();
+          broadcastToOthers(ws, msg);
+          break;
+        }
+
+        case 'string:upsert': {
+          const { string } = msg.payload;
+          if (string) {
+            const idx = db.strings.findIndex((s) => s.id === string.id);
+            if (idx >= 0) {
+              db.strings[idx] = string;
+            } else {
+              db.strings.push(string);
+            }
+            scheduleSaveDatabase();
+          }
+          broadcastToOthers(ws, msg);
+          break;
+        }
+
+        case 'string:delete': {
+          const { id } = msg.payload;
+          db.strings = db.strings.filter((s) => s.id !== id);
+          scheduleSaveDatabase();
+          broadcastToOthers(ws, msg);
+          break;
+        }
+
+        case 'sticky:move': {
+          const { id, x, y } = msg.payload;
+          const sticky = db.stickies.find((s) => s.id === id);
+          if (sticky) {
+            sticky.x = x;
+            sticky.y = y;
+            scheduleSaveDatabase();
+          }
+          broadcastToOthers(ws, msg);
+          break;
+        }
+
+        case 'sticky:upsert': {
+          const { sticky } = msg.payload;
+          if (sticky) {
+            const idx = db.stickies.findIndex((s) => s.id === sticky.id);
+            if (idx >= 0) {
+              db.stickies[idx] = sticky;
+            } else {
+              db.stickies.push(sticky);
+            }
+            scheduleSaveDatabase();
+          }
+          broadcastToOthers(ws, msg);
+          break;
+        }
+
+        case 'sticky:delete': {
+          const { id } = msg.payload;
+          db.stickies = db.stickies.filter((s) => s.id !== id);
+          scheduleSaveDatabase();
+          broadcastToOthers(ws, msg);
+          break;
+        }
+
+        case 'board:create': {
+          const { board } = msg.payload;
+          if (board) {
+            if (!db.boards.some((b) => b.id === board.id)) {
+              db.boards.push(board);
+              scheduleSaveDatabase();
+            }
+          }
+          broadcastToOthers(ws, msg);
+          break;
+        }
+
+        // Screening Room Playback Sync
+        case 'watch:playback': {
+          const syncData = msg.payload;
+          db.screeningState = {
+            isOpen: syncData.isOpen ?? true,
+            episodeNumber: syncData.episodeNumber || db.screeningState.episodeNumber || 1,
+            isPlaying: !!syncData.isPlaying,
+            currentTime: syncData.currentTime || 0,
+            updatedBy: syncData.updatedBy || 'Partner',
+            updatedAt: Date.now(),
+          };
+          scheduleSaveDatabase();
+          // Broadcast to everyone (including sender confirmation if needed)
+          broadcastToAll({
+            type: 'watch:playback',
+            payload: db.screeningState,
+          });
+          break;
+        }
+
+        case 'watch:chat': {
+          const { boardId, message } = msg.payload;
+          if (!db.chat[boardId]) {
+            db.chat[boardId] = [];
+          }
+          db.chat[boardId].push(message);
+          scheduleSaveDatabase();
+          broadcastToAll({
+            type: 'watch:chat',
+            payload: { boardId, message },
+          });
+          break;
+        }
+
+        case 'watch:countdown': {
+          // Synchronized 3-2-1 play countdown
+          broadcastToAll({
+            type: 'watch:countdown',
+            payload: msg.payload,
+          });
+          break;
+        }
+
+        // WebRTC Signaling Relay
+        case 'webrtc:signal': {
+          broadcastToOthers(ws, {
+            type: 'webrtc:signal',
+            payload: msg.payload,
+          });
+          break;
+        }
+      }
+    } catch (err) {
+      console.error('[WebSocket] Message parse error:', err);
+    }
+  });
+
+  ws.on('close', () => {
+    connectedUsers.delete(ws);
+    broadcastToAll({
+      type: 'presence:update',
+      payload: { onlineUsers: getPublicOnlineUsers() },
+    });
+  });
+});
+
+// Periodic heartbeat & cleanup
+setInterval(() => {
+  broadcastToAll({
+    type: 'server:ping',
+    timestamp: Date.now(),
+    onlineUsers: getPublicOnlineUsers(),
+  });
+}, 10000);
+
+// --- REST API ENDPOINTS ---
+
+// User Accounts Endpoints
+// List all saved accounts (without passwords)
+app.get('/api/users', (req, res) => {
+  const safeUsers = (db.users || []).map(({ password, ...u }) => u);
+  res.json(safeUsers);
+});
+
+// Register or save an account
+app.post('/api/users/register', (req, res) => {
+  const { name, email, password, avatar, badge_title, department, favorite_quote } = req.body;
+  if (!email || !name) {
+    return res.status(400).json({ error: 'Name and email are required to register an account' });
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  let user = (db.users || []).find((u) => u.email.toLowerCase() === normalizedEmail);
+
+  if (user) {
+    // Update existing user profile
+    user.name = name.trim();
+    if (password) user.password = password;
+    if (avatar) user.avatar = avatar;
+    if (badge_title) user.badge_title = badge_title;
+    if (department) user.department = department;
+    if (favorite_quote) user.favorite_quote = favorite_quote;
+    user.last_login = new Date().toISOString();
+  } else {
+    // Create new user account
+    user = {
+      id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: name.trim(),
+      email: normalizedEmail,
+      password: password || '',
+      avatar: avatar || '🌲',
+      badge_title: badge_title || 'Investigator',
+      department: department || 'Sheriff Dispatch',
+      favorite_quote: favorite_quote || 'The owls are not what they seem.',
+      created_at: new Date().toISOString(),
+      last_login: new Date().toISOString(),
+    };
+    if (!db.users) db.users = [];
+    db.users.push(user);
+  }
+
+  scheduleSaveDatabase();
+  const { password: _, ...safeUser } = user;
+  res.json({ success: true, user: safeUser });
+});
+
+// Login / Authenticate account
+app.post('/api/users/login', (req, res) => {
+  const { email, password } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const user = (db.users || []).find((u) => u.email.toLowerCase() === normalizedEmail);
+
+  if (!user) {
+    return res.status(404).json({ error: 'No account found with this email badge.' });
+  }
+
+  // If user has a set password, verify it
+  if (user.password && password && user.password !== password) {
+    return res.status(401).json({ error: 'Invalid password. Please check your credentials.' });
+  }
+
+  user.last_login = new Date().toISOString();
+  scheduleSaveDatabase();
+
+  const { password: _, ...safeUser } = user;
+  res.json({ success: true, user: safeUser });
+});
+
+// Update profile
+app.put('/api/users/:email', (req, res) => {
+  const normalizedEmail = decodeURIComponent(req.params.email).toLowerCase().trim();
+  const { name, avatar, badge_title, department, favorite_quote, password } = req.body;
+
+  const user = (db.users || []).find((u) => u.email.toLowerCase() === normalizedEmail);
+  if (!user) {
+    return res.status(404).json({ error: 'User account not found' });
+  }
+
+  if (name) user.name = name.trim();
+  if (avatar) user.avatar = avatar;
+  if (badge_title) user.badge_title = badge_title;
+  if (department) user.department = department;
+  if (favorite_quote) user.favorite_quote = favorite_quote;
+  if (password) user.password = password;
+  user.last_login = new Date().toISOString();
+
+  scheduleSaveDatabase();
+  const { password: _, ...safeUser } = user;
+  res.json({ success: true, user: safeUser });
+});
+
+// Server health and status
+app.get('/api/status', (req, res) => {
+  res.json({
+    status: 'ok',
+    serverTime: new Date().toISOString(),
+    onlineCount: connectedUsers.size,
+    onlineUsers: getPublicOnlineUsers(),
+    screeningState: db.screeningState,
+  });
+});
+
+// Presence roster
+app.get('/api/presence', (req, res) => {
+  res.json(getPublicOnlineUsers());
+});
+
+// Load all boards
+app.get('/api/boards', (req, res) => {
+  res.json(db.boards);
+});
+
+// Load full board details (cards, strings, stickies)
+app.get('/api/boards/:id', (req, res) => {
+  const { id } = req.params;
+  const board = db.boards.find((b) => b.id === id);
+  const boardCards = db.cards.filter((c) => c.board_id === id);
+  const boardStrings = db.strings.filter((s) => s.board_id === id);
+  const boardStickies = db.stickies.filter((s) => s.board_id === id);
+  res.json({
+    board: board || null,
+    cards: boardCards,
+    strings: boardStrings,
+    stickies: boardStickies,
+  });
+});
+
+// Create or duplicate board
+app.post('/api/boards', (req, res) => {
+  const { board, duplicateFromBoardId } = req.body;
+  if (!board || !board.id) {
+    return res.status(400).json({ error: 'Missing board specification' });
+  }
+
+  if (!db.boards.some((b) => b.id === board.id)) {
+    db.boards.push(board);
+  }
+
+  // Duplicate items if requested
+  if (duplicateFromBoardId) {
+    const sourceCards = db.cards.filter((c) => c.board_id === duplicateFromBoardId);
+    const idMap = new Map<string, string>();
+
+    sourceCards.forEach((c) => {
+      const newCardId = `card-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      idMap.set(c.id, newCardId);
+      db.cards.push({
+        ...c,
+        id: newCardId,
+        board_id: board.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    });
+
+    const sourceStrings = db.strings.filter((s) => s.board_id === duplicateFromBoardId);
+    sourceStrings.forEach((s) => {
+      const newSource = idMap.get(s.source_id);
+      const newTarget = idMap.get(s.target_id);
+      if (newSource && newTarget) {
+        db.strings.push({
+          ...s,
+          id: `str-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          board_id: board.id,
+          source_id: newSource,
+          target_id: newTarget,
+          created_at: new Date().toISOString(),
+        });
+      }
+    });
+
+    const sourceStickies = db.stickies.filter((s) => s.board_id === duplicateFromBoardId);
+    sourceStickies.forEach((st) => {
+      db.stickies.push({
+        ...st,
+        id: `sticky-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        board_id: board.id,
+        created_at: new Date().toISOString(),
+      });
+    });
+  }
+
+  scheduleSaveDatabase();
+  res.json({ success: true, board });
+});
+
+// Import / Carry-over items from one board into another board (Merge or Replace)
+app.post('/api/boards/:targetBoardId/import', (req, res) => {
+  const { targetBoardId } = req.params;
+  const { sourceBoardId, mode = 'merge', items = ['cards', 'strings', 'stickies'] } = req.body;
+
+  if (!sourceBoardId || !targetBoardId) {
+    return res.status(400).json({ error: 'Missing source or target board ID' });
+  }
+
+  const targetBoard = db.boards.find((b) => b.id === targetBoardId);
+  if (!targetBoard) {
+    return res.status(404).json({ error: 'Target board not found' });
+  }
+
+  // If replace mode, clear existing items from target board first
+  if (mode === 'replace') {
+    if (items.includes('cards')) {
+      db.cards = db.cards.filter((c) => c.board_id !== targetBoardId);
+    }
+    if (items.includes('strings')) {
+      db.strings = db.strings.filter((s) => s.board_id !== targetBoardId);
+    }
+    if (items.includes('stickies')) {
+      db.stickies = db.stickies.filter((st) => st.board_id !== targetBoardId);
+    }
+  }
+
+  const idMap = new Map<string, string>();
+  let importedCardsCount = 0;
+  let importedStringsCount = 0;
+  let importedStickiesCount = 0;
+
+  // Import cards
+  if (items.includes('cards')) {
+    const sourceCards = db.cards.filter((c) => c.board_id === sourceBoardId);
+    sourceCards.forEach((c) => {
+      // Check if card with identical name already exists in target board in merge mode
+      const existingInTarget = db.cards.find(
+        (tc) => tc.board_id === targetBoardId && tc.name.toLowerCase().trim() === c.name.toLowerCase().trim()
+      );
+
+      if (existingInTarget && mode === 'merge') {
+        // Map old id to existing target id for string connections
+        idMap.set(c.id, existingInTarget.id);
+      } else {
+        const newCardId = `card-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        idMap.set(c.id, newCardId);
+        db.cards.push({
+          ...c,
+          id: newCardId,
+          board_id: targetBoardId,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+        importedCardsCount++;
+      }
+    });
+  }
+
+  // Import strings
+  if (items.includes('strings')) {
+    const sourceStrings = db.strings.filter((s) => s.board_id === sourceBoardId);
+    sourceStrings.forEach((s) => {
+      const newSource = idMap.get(s.source_id);
+      const newTarget = idMap.get(s.target_id);
+      if (newSource && newTarget) {
+        // Prevent exact duplicate string in target
+        const alreadyConnected = db.strings.some(
+          (str) =>
+            str.board_id === targetBoardId &&
+            ((str.source_id === newSource && str.target_id === newTarget) ||
+              (str.source_id === newTarget && str.target_id === newSource))
+        );
+        if (!alreadyConnected) {
+          db.strings.push({
+            ...s,
+            id: `str-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            board_id: targetBoardId,
+            source_id: newSource,
+            target_id: newTarget,
+            created_at: new Date().toISOString(),
+          });
+          importedStringsCount++;
+        }
+      }
+    });
+  }
+
+  // Import stickies
+  if (items.includes('stickies')) {
+    const sourceStickies = db.stickies.filter((s) => s.board_id === sourceBoardId);
+    sourceStickies.forEach((st) => {
+      db.stickies.push({
+        ...st,
+        id: `sticky-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        board_id: targetBoardId,
+        created_at: new Date().toISOString(),
+      });
+      importedStickiesCount++;
+    });
+  }
+
+  targetBoard.updated_at = new Date().toISOString();
+  scheduleSaveDatabase();
+
+  res.json({
+    success: true,
+    imported: {
+      cards: importedCardsCount,
+      strings: importedStringsCount,
+      stickies: importedStickiesCount,
+    },
+    targetBoard,
+  });
+});
+
+// Cards endpoints
+app.post('/api/boards/:boardId/cards', (req, res) => {
+  const card = req.body;
+  if (!card || !card.id) return res.status(400).json({ error: 'Invalid card' });
+  const idx = db.cards.findIndex((c) => c.id === card.id);
+  if (idx >= 0) {
+    db.cards[idx] = card;
+  } else {
+    db.cards.push(card);
+  }
+  scheduleSaveDatabase();
+  res.json({ success: true, card });
+});
+
+app.delete('/api/boards/:boardId/cards/:cardId', (req, res) => {
+  const { cardId } = req.params;
+  db.cards = db.cards.filter((c) => c.id !== cardId);
+  db.strings = db.strings.filter((s) => s.source_id !== cardId && s.target_id !== cardId);
+  scheduleSaveDatabase();
+  res.json({ success: true });
+});
+
+// Strings endpoints
+app.post('/api/boards/:boardId/strings', (req, res) => {
+  const string = req.body;
+  if (!string || !string.id) return res.status(400).json({ error: 'Invalid string' });
+  const idx = db.strings.findIndex((s) => s.id === string.id);
+  if (idx >= 0) {
+    db.strings[idx] = string;
+  } else {
+    db.strings.push(string);
+  }
+  scheduleSaveDatabase();
+  res.json({ success: true, string });
+});
+
+app.delete('/api/boards/:boardId/strings/:stringId', (req, res) => {
+  const { stringId } = req.params;
+  db.strings = db.strings.filter((s) => s.id !== stringId);
+  scheduleSaveDatabase();
+  res.json({ success: true });
+});
+
+// Stickies endpoints
+app.post('/api/boards/:boardId/stickies', (req, res) => {
+  const sticky = req.body;
+  if (!sticky || !sticky.id) return res.status(400).json({ error: 'Invalid sticky' });
+  const idx = db.stickies.findIndex((s) => s.id === sticky.id);
+  if (idx >= 0) {
+    db.stickies[idx] = sticky;
+  } else {
+    db.stickies.push(sticky);
+  }
+  scheduleSaveDatabase();
+  res.json({ success: true, sticky });
+});
+
+app.delete('/api/boards/:boardId/stickies/:stickyId', (req, res) => {
+  const { stickyId } = req.params;
+  db.stickies = db.stickies.filter((s) => s.id !== stickyId);
+  scheduleSaveDatabase();
+  res.json({ success: true });
+});
+
+// Screening Room Chat
+app.get('/api/chat/:boardId', (req, res) => {
+  const { boardId } = req.params;
+  res.json(db.chat[boardId] || []);
+});
+
+app.post('/api/chat/:boardId', (req, res) => {
+  const { boardId } = req.params;
+  const message = req.body;
+  if (!db.chat[boardId]) {
+    db.chat[boardId] = [];
+  }
+  db.chat[boardId].push(message);
+  scheduleSaveDatabase();
+  res.json({ success: true, message });
+});
+
+// Screening playback state
+app.get('/api/screening', (req, res) => {
+  res.json(db.screeningState);
+});
+
+app.post('/api/screening', (req, res) => {
+  db.screeningState = {
+    ...db.screeningState,
+    ...req.body,
+    updatedAt: Date.now(),
+  };
+  scheduleSaveDatabase();
+  broadcastToAll({
+    type: 'watch:playback',
+    payload: db.screeningState,
+  });
+  res.json(db.screeningState);
+});
+
+// Video Streaming Endpoint with HTTP 206 Partial Content (Range requests)
+const EPISODE_DRIVE_IDS: Record<number, string> = {
+  1: '1QfcDCpuVPL8bg36CcwhrCa0df-Y0aoFL',
+  2: '1QMu-g9mIRyCO2EZdY2RjHHX5VuOwvIm9',
+  3: '1G3dPJzNXMzWrF62gqb9dRTbc4NJFj5qp',
+  4: '1JtJY5mpAy5XbJ6VqYnWaqTrlTKmfAHkS',
+  5: '1WvjHW6oj7_O8Nj3JP_SwU2djfXB22SJv',
+};
+
+const EPISODE_RAW_DOWNLOAD_URLS: Record<number, string> = {
+  1: 'https://drive.usercontent.google.com/download?id=1QfcDCpuVPL8bg36CcwhrCa0df-Y0aoFL&export=download&authuser=0&confirm=t&uuid=72875448-b677-4fc8-bb6f-0f9df7bafab2&at=AMrWOn1fiyjbazbKsqibfYU_saeZ:1789010242243',
+  2: 'https://drive.usercontent.google.com/download?id=1QMu-g9mIRyCO2EZdY2RjHHX5VuOwvIm9&export=download&authuser=0&confirm=t&uuid=f5178338-18cb-4ae5-a13a-06129f8d1611&at=AMrWOn0dskNjZ-x_ETB63BKKhgPB:1789011217527',
+  3: 'https://drive.usercontent.google.com/download?id=1G3dPJzNXMzWrF62gqb9dRTbc4NJFj5qp&export=download&authuser=0&confirm=t&uuid=fed93477-3770-4616-a872-87848a80e1ac&at=AMrWOn2xhXWnqq0qzvjbmxwqtfzl:1789018377094',
+  4: 'https://drive.usercontent.google.com/download?id=1JtJY5mpAy5XbJ6VqYnWaqTrlTKmfAHkS&export=download&authuser=0&confirm=t&uuid=605d90ff-76d7-4fc1-a2a4-4cc845f1b1f6&at=AMrWOn0eXipRWTC-otTdV_g-DUPs:1789018817305',
+  5: 'https://drive.usercontent.google.com/download?id=1WvjHW6oj7_O8Nj3JP_SwU2djfXB22SJv&export=download&authuser=0&confirm=t&uuid=156b6996-7ec1-4dbc-a9ac-774bdd02cdf6&at=AMrWOn1fFY7dGag1ZA9NqhrmJzSg:1789019058091',
+};
+
+// Cached Google Drive download cookie
+let driveCookieCache: string = '';
+function getDriveCookies(): string {
+  if (driveCookieCache) return driveCookieCache;
+  try {
+    if (fs.existsSync('/tmp/cookies.txt')) {
+      const raw = fs.readFileSync('/tmp/cookies.txt', 'utf8');
+      const lines = raw.split('\n').filter((l) => l && !l.startsWith('#'));
+      driveCookieCache = lines
+        .map((l) => {
+          const p = l.split('\t');
+          return `${p[5]}=${p[6]}`;
+        })
+        .join('; ');
+      return driveCookieCache;
+    }
+  } catch (err) {
+    console.error('Error reading cookies:', err);
+  }
+  return '';
+}
+
+app.get('/api/episodes/:episodeNumber/video', (req, res) => {
+  const epNum = parseInt(req.params.episodeNumber, 10) || 1;
+  const driveId = EPISODE_DRIVE_IDS[epNum] || EPISODE_DRIVE_IDS[1];
+
+  // Check if a local remuxed or pre-downloaded file exists
+  const localRemuxPath = path.join(EPISODES_CACHE_DIR, `episode_${epNum}.mp4`);
+  const localTestPath = path.join('/tmp', 'clip60.mp4');
+
+  if (fs.existsSync(localRemuxPath)) {
+    const stat = fs.statSync(localRemuxPath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunksize = end - start + 1;
+      const file = fs.createReadStream(localRemuxPath, { start, end });
+      const head = {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize,
+        'Content-Type': 'video/mp4',
+      };
+      res.writeHead(206, head);
+      file.pipe(res);
+      return;
+    } else {
+      const head = {
+        'Content-Length': fileSize,
+        'Content-Type': 'video/mp4',
+        'Accept-Ranges': 'bytes',
+      };
+      res.writeHead(200, head);
+      fs.createReadStream(localRemuxPath).pipe(res);
+      return;
+    }
+  }
+
+  // Stream directly from Google Drive with Range proxy
+  const cookie = getDriveCookies();
+  const rangeHeader = req.headers.range || 'bytes=0-';
+
+  const driveUrl =
+    EPISODE_RAW_DOWNLOAD_URLS[epNum] ||
+    `https://drive.usercontent.google.com/download?id=${driveId}&export=download&confirm=t`;
+
+  const options: https.RequestOptions = {
+    headers: {
+      Range: rangeHeader,
+      Cookie: cookie,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    },
+  };
+
+  const driveReq = https.get(driveUrl, options, (driveRes) => {
+    // If redirect occurs
+    if (driveRes.statusCode === 302 || driveRes.statusCode === 303 || driveRes.statusCode === 307) {
+      const redirectUrl = driveRes.headers.location;
+      if (redirectUrl) {
+        https.get(redirectUrl, { headers: options.headers }, (subRes) => {
+          res.writeHead(subRes.statusCode || 200, {
+            'Content-Type': subRes.headers['content-type'] || 'video/mp4',
+            'Content-Length': subRes.headers['content-length'] || '',
+            'Content-Range': subRes.headers['content-range'] || '',
+            'Accept-Ranges': 'bytes',
+          });
+          subRes.pipe(res);
+        }).on('error', (err) => {
+          console.error('Drive proxy redirect error:', err);
+          if (!res.headersSent) res.status(500).send('Video stream error');
+        });
+        return;
+      }
+    }
+
+    res.writeHead(driveRes.statusCode || 200, {
+      'Content-Type': driveRes.headers['content-type'] || 'video/mp4',
+      'Content-Length': driveRes.headers['content-length'] || '',
+      'Content-Range': driveRes.headers['content-range'] || '',
+      'Accept-Ranges': 'bytes',
+    });
+    driveRes.pipe(res);
+  });
+
+  driveReq.on('error', (err) => {
+    console.error('Drive stream error:', err);
+    if (!res.headersSent) {
+      res.status(502).json({ error: 'Failed to stream from video host' });
+    }
+  });
+
+  req.on('close', () => {
+    driveReq.destroy();
+  });
+});
+
+// Vite middleware / production serving
+async function start() {
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Twin Peaks Server] Sheriff Dispatch Server running on port ${PORT}`);
+  });
+}
+
+start();

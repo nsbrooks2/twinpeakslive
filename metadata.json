@@ -1,0 +1,6 @@
+{
+  "name": "Damn Fine Case Board",
+  "description": "Twin Peaks–themed real-time collaborative investigation whiteboard for episode case notes, character connections, and peer video chat.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

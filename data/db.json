@@ -1,0 +1,112 @@
+{
+  "users": [
+    {
+      "id": "user-cooper",
+      "name": "Agent Dale Cooper",
+      "email": "nsbrooks23@gmail.com",
+      "avatar": "☕",
+      "badge_title": "Special Agent, FBI",
+      "department": "Federal Bureau of Investigation",
+      "favorite_quote": "Damn fine cup of coffee!",
+      "created_at": "2026-09-01T08:00:00.000Z",
+      "last_login": "2026-09-10T06:03:01.578Z"
+    },
+    {
+      "id": "user-girlfriend",
+      "name": "Special Investigator",
+      "email": "partner@twinpeaks.private",
+      "avatar": "🌲",
+      "badge_title": "Lead Detective / Co-Investigator",
+      "department": "Twin Peaks Sheriff Dispatch",
+      "favorite_quote": "The owls are not what they seem.",
+      "created_at": "2026-09-01T08:00:00.000Z",
+      "last_login": "2026-09-10T06:03:01.578Z"
+    },
+    {
+      "id": "user-truman",
+      "name": "Sheriff Harry S. Truman",
+      "email": "truman@twinpeaks.gov",
+      "avatar": "⭐",
+      "badge_title": "Sheriff",
+      "department": "Twin Peaks Sheriff Department",
+      "favorite_quote": "There’s a sort of evil out there.",
+      "created_at": "2026-09-01T08:00:00.000Z",
+      "last_login": "2026-09-10T06:03:01.578Z"
+    }
+  ],
+  "boards": [
+    {
+      "id": "episode-1-pilot",
+      "title": "Episode 1: Pilot (Northwest Passage)",
+      "episode_number": 1,
+      "created_at": "2026-09-01T08:00:00.000Z",
+      "updated_at": "2026-09-01T10:30:00.000Z",
+      "description": "The discovery of Laura Palmer wrapped in plastic by the Packard Sawmill shore. Official investigation opened."
+    },
+    {
+      "id": "episode-2-traces-to-nowhere",
+      "title": "Episode 2: Traces to Nowhere",
+      "episode_number": 2,
+      "created_at": "2026-09-02T08:00:00.000Z",
+      "updated_at": "2026-09-10T05:59:20.610Z",
+      "description": "Agent Cooper questions James Hurley; visits to the Horne department store and Leo Johnson’s house. The Log Lady shares cryptic warnings."
+    },
+    {
+      "id": "episode-3-zen-skill",
+      "title": "Episode 3: Zen, or the Skill to Catch a Killer",
+      "episode_number": 3,
+      "created_at": "2026-09-03T08:00:00.000Z",
+      "updated_at": "2026-09-03T10:00:00.000Z",
+      "description": "Agent Cooper demonstrates his deductive Tibetan rock-throwing technique in the woods. Cooper later experiences his iconic dream in the Red Room with the Man from Another Place and Laura Palmer."
+    },
+    {
+      "id": "episode-4-rest-in-pain",
+      "title": "Episode 4: Rest in Pain",
+      "episode_number": 4,
+      "created_at": "2026-09-04T08:00:00.000Z",
+      "updated_at": "2026-09-04T10:00:00.000Z",
+      "description": "The town gathers for Laura Palmer’s heartbreaking funeral, erupting into family heartbreak and chaos at the cemetery. Cooper learns of the Bookhouse Boys secret society."
+    },
+    {
+      "id": "episode-5-the-one-armed-man",
+      "title": "Episode 5: The One-Armed Man",
+      "episode_number": 5,
+      "created_at": "2026-09-05T08:00:00.000Z",
+      "updated_at": "2026-09-10T05:57:40.338Z",
+      "description": "Cooper and Truman question the One-Armed Man (Phillip Gerard) and track veterinarian records for a mysterious bird. Audrey Horne goes undercover at One Eyed Jacks."
+    }
+  ],
+  "cards": [],
+  "strings": [],
+  "stickies": [],
+  "chat": {
+    "episode-1-pilot": [
+      {
+        "id": "init-1",
+        "sender_name": "Special Agent Cooper",
+        "sender_email": "cooper@twinpeaks.fbi",
+        "timestamp": "2026-09-10T05:26:08.282Z",
+        "video_time": 0,
+        "text": "Diane, 11:30 AM, February 24th. Entering the town of Twin Peaks. 5 miles south of the Canadian border.",
+        "is_theory_clue": true
+      },
+      {
+        "id": "init-2",
+        "sender_name": "Sheriff Truman",
+        "sender_email": "truman@twinpeaks.gov",
+        "timestamp": "2026-09-10T05:26:08.282Z",
+        "video_time": 145,
+        "text": "Pete Martell found a body by the logs near Blue Pine Lodge. Wrapped in plastic.",
+        "is_theory_clue": true
+      }
+    ]
+  },
+  "screeningState": {
+    "isOpen": true,
+    "episodeNumber": 5,
+    "isPlaying": false,
+    "currentTime": 34.363,
+    "updatedBy": "Girlfriend",
+    "updatedAt": 1789019484466
+  }
+}

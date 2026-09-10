@@ -9,18 +9,29 @@ import { createServer as createViteServer } from 'vite';
 const app = express();
 const server = http.createServer(app);
 const PORT = 3000;
-const DATA_DIR = path.join(process.cwd(), 'data');
+
+// In Vercel serverless functions, the writable directory is /tmp
+const IS_VERCEL = process.env.VERCEL === '1' || !!process.env.VERCEL;
+const DATA_DIR = IS_VERCEL ? path.join('/tmp', 'data') : path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  } catch (e) {
+    console.warn('Could not create DATA_DIR:', e);
+  }
 }
 
 // Ensure episodes cache directory exists
 const EPISODES_CACHE_DIR = path.join('/tmp', 'episodes');
 if (!fs.existsSync(EPISODES_CACHE_DIR)) {
-  fs.mkdirSync(EPISODES_CACHE_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(EPISODES_CACHE_DIR, { recursive: true });
+  } catch (e) {
+    console.warn('Could not create EPISODES_CACHE_DIR:', e);
+  }
 }
 
 interface DatabaseSchema {
@@ -1074,9 +1085,14 @@ async function start() {
     });
   }
 
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Twin Peaks Server] Sheriff Dispatch Server running on port ${PORT}`);
-  });
+  // Only start listening when run as a standalone server (not inside Vercel serverless function)
+  if (!IS_VERCEL) {
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`[Twin Peaks Server] Sheriff Dispatch Server running on port ${PORT}`);
+    });
+  }
 }
 
 start();
+
+export default app;

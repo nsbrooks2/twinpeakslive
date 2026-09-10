@@ -115,10 +115,10 @@ export const ShareModal: React.FC<ShareModalProps> = ({
             <div className="p-3 bg-[#131c17] border border-[#2b4c37] rounded-lg space-y-1.5 text-emerald-200">
               <div className="font-bold text-emerald-300 flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-emerald-400" />
-                <span>AI Studio Permanent Share:</span>
+                <span>Publishing to Vercel & AI Studio:</span>
               </div>
               <p className="text-[11px] text-[#a4c5b3] leading-relaxed">
-                You can also click the <strong>Share</strong> button at the top right of the Google AI Studio toolbar to deploy a public snapshot or permanent Cloud Run version for anyone on the internet.
+                This project is pre-configured with <strong>vercel.json</strong> and serverless endpoints. You can export to GitHub from Settings and import directly into Vercel for your own custom <strong>.vercel.app</strong> domain, or click <strong>Share</strong> in AI Studio!
               </p>
             </div>
           </div>

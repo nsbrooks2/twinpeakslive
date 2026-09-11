@@ -88,9 +88,9 @@ export const StickyNoteItem: React.FC<StickyProps> = ({
       style={{
         transform: `translate3d(${note.x}px, ${note.y}px, 0)`,
         zIndex: 15,
-        touchAction: 'none',
+        touchAction: 'auto',
       }}
-      className={`absolute w-60 p-3 rounded shadow-[0_8px_20px_rgba(0,0,0,0.5)] border ${currentStyle.bg} ${currentStyle.text} ${currentStyle.border} select-none cursor-grab active:cursor-grabbing touch-none transition-transform duration-75`}
+      className={`absolute w-60 p-3 rounded shadow-[0_8px_20px_rgba(0,0,0,0.5)] border ${currentStyle.bg} ${currentStyle.text} ${currentStyle.border} select-none cursor-grab active:cursor-grabbing transition-transform duration-75`}
     >
       {/* Tape strip at top */}
       <div

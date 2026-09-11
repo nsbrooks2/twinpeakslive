@@ -977,9 +977,9 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
     >
       <div className="relative w-screen h-screen overflow-hidden bg-[#0c0705] flex flex-col select-none">
       {/* 1. TOP SHERIFF'S STATION NAVBAR */}
-      <header className="relative z-30 min-h-14 sm:h-16 bg-[#160d0a] border-b-2 border-[#4a2e20] px-2.5 sm:px-4 py-1.5 flex items-center justify-between shadow-lg gap-1.5 sm:gap-4 overflow-x-auto no-scrollbar">
+      <header className="relative z-30 bg-[#160d0a] border-b-2 border-[#4a2e20] px-3 sm:px-4 py-2 flex items-center justify-between shadow-lg gap-3 flex-wrap sm:flex-nowrap">
         {/* Left: App Title & Episode Selector */}
-        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap sm:flex-nowrap">
           <div className="flex items-center gap-1.5 sm:gap-2">
             <span className="text-lg sm:text-xl">☕</span>
             <div>
@@ -995,11 +995,11 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
           {/* Episode Switcher Dropdown Button */}
           <button
             onClick={() => setIsEpisodeModalOpen(true)}
-            className="flex items-center gap-1.5 bg-[#25150f] hover:bg-[#382017] border border-[#5a3928] text-[#f5ebd4] px-2 sm:px-3 py-1.5 rounded-lg text-xs font-typewriter transition-all shadow cursor-pointer group min-h-[38px]"
+            className="flex items-center gap-1.5 bg-[#25150f] hover:bg-[#382017] border border-[#5a3928] text-[#f5ebd4] px-2.5 sm:px-3 py-2 rounded-lg text-xs font-typewriter transition-all shadow cursor-pointer group min-h-[40px]"
             title="Switch or create episode investigation boards"
           >
             <Film className="w-3.5 h-3.5 text-[#e5c158] flex-shrink-0" />
-            <span className="font-bold max-w-[80px] sm:max-w-[180px] truncate">
+            <span className="font-bold max-w-[100px] sm:max-w-[180px] truncate">
               {activeBoard?.title || 'Episode 1: Pilot'}
             </span>
             <ChevronDown className="w-3.5 h-3.5 text-[#b89f89] group-hover:translate-y-0.5 transition-transform flex-shrink-0" />
@@ -1008,13 +1008,13 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
           {/* Synchronized Watch Party Trigger Button */}
           <button
             onClick={() => setIsWatchPartyOpen(true)}
-            className="flex items-center gap-1 sm:gap-1.5 bg-gradient-to-r from-[#83161c] to-[#991b1b] hover:from-[#991b1b] hover:to-[#b91c1c] text-[#fdf2f2] px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-typewriter font-bold shadow-[0_0_15px_rgba(185,28,28,0.4)] border border-[#e5c158]/50 transition-all cursor-pointer hover:scale-105 min-h-[38px] whitespace-nowrap"
+            className="flex items-center gap-1 sm:gap-1.5 bg-gradient-to-r from-[#83161c] to-[#991b1b] hover:from-[#991b1b] hover:to-[#b91c1c] text-[#fdf2f2] px-3 py-2 rounded-lg text-xs font-typewriter font-bold shadow-[0_0_15px_rgba(185,28,28,0.4)] border border-[#e5c158]/50 transition-all cursor-pointer hover:scale-105 min-h-[40px] whitespace-nowrap"
             title={`Watch Episode ${currentEpNumber} together with synchronized play/pause, live chat, and timeline clues`}
           >
             <Tv className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#e5c158] animate-pulse flex-shrink-0" />
             <span className="tracking-wide hidden sm:inline">Watch Ep. {currentEpNumber}</span>
             <span className="tracking-wide sm:hidden">Ep. {currentEpNumber}</span>
-            <span className="bg-black/40 text-[#e5c158] text-[9px] px-1.5 py-0.2 rounded font-mono hidden md:inline">
+            <span className="bg-black/40 text-[#e5c158] text-[9px] px-1.5 py-0.5 rounded font-mono hidden md:inline">
               SYNC
             </span>
           </button>
@@ -1035,11 +1035,11 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
         )}
 
         {/* Right: Cloud Sync Status, Presence Indicator, Video trigger, & Sign out */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
           {/* Direct P2P Radio Link Badge & Settings */}
           <button
             onClick={() => setIsConnModalOpen(true)}
-            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-typewriter border transition-all cursor-pointer ${
+            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-typewriter border transition-all cursor-pointer ${
               isP2PConnected
                 ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300 hover:bg-emerald-900 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
                 : 'bg-[#22120b] border-[#5a3928] text-[#cfb69b] hover:bg-[#321a10]'
@@ -1071,19 +1071,19 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
           {/* Share & Publish Access Link Button */}
           <button
             onClick={() => setIsShareModalOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-[#83161c] hover:bg-[#991b1b] border border-[#b91c1c] text-[#fdf2f2] rounded-full text-xs font-typewriter uppercase tracking-wider font-bold shadow-md transition-all hover:scale-105 cursor-pointer min-h-[38px]"
+            className="flex items-center gap-1.5 px-3 py-2 bg-[#83161c] hover:bg-[#991b1b] border border-[#b91c1c] text-[#fdf2f2] rounded-full text-xs font-typewriter uppercase tracking-wider font-bold shadow-md transition-all hover:scale-105 cursor-pointer min-h-[40px]"
             title="Publish and share site link with partner in Michigan or Alabama"
           >
             <Share2 className="w-3.5 h-3.5" />
-            <span className="hidden xs:inline sm:inline">Share</span>
+            <span>Share</span>
           </button>
 
           <div className="h-6 w-[1px] bg-[#3e2518] hidden xs:block" />
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setIsProfileModalOpen(true)}
-              className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 bg-[#25150f] hover:bg-[#382017] border border-[#4a2e20] hover:border-[#e5c158] rounded-full transition-all cursor-pointer shadow-sm text-left group min-h-[38px]"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#25150f] hover:bg-[#382017] border border-[#4a2e20] hover:border-[#e5c158] rounded-full transition-all cursor-pointer shadow-sm text-left group min-h-[40px]"
               title="Officer Profile and Settings"
             >
               <span className="text-sm select-none">{currentUser.avatar || '🌲'}</span>
@@ -1094,7 +1094,7 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
             </button>
             <button
               onClick={onSignOut}
-              className="p-2 bg-[#25150f] hover:bg-[#3b1d12] border border-[#4a2e20] text-[#cfb69b] hover:text-red-400 rounded-lg transition-colors cursor-pointer min-w-[38px] min-h-[38px] flex items-center justify-center"
+              className="p-2 bg-[#25150f] hover:bg-[#3b1d12] border border-[#4a2e20] text-[#cfb69b] hover:text-red-400 rounded-lg transition-colors cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center"
               title="Lock station dossier / sign out"
             >
               <LogOut className="w-4 h-4" />

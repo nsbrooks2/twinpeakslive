@@ -1,6 +1,9 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Retrieve credentials from Vite env or localStorage
+const DEFAULT_SUPABASE_URL = 'https://dkqkzmjdvjvxehsoeomd.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrcWt6bWpkdmp2eGVoc29lb21kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwMDA0OTgsImV4cCI6MjEwNDU3NjQ5OH0.uPQtL9fCRricdInsFOoEUYfem91nFfi9R5N5WGQotaY';
+
+// Retrieve credentials from Vite env or localStorage or defaults
 export function getSupabaseCredentials(): { url: string; key: string } {
   const metaEnv = (import.meta as any).env || {};
   const envUrl = metaEnv.VITE_SUPABASE_URL || '';
@@ -10,8 +13,8 @@ export function getSupabaseCredentials(): { url: string; key: string } {
   const localKey = typeof window !== 'undefined' ? localStorage.getItem('tp_supabase_key') || '' : '';
 
   return {
-    url: localUrl.trim() || envUrl.trim(),
-    key: localKey.trim() || envKey.trim(),
+    url: localUrl.trim() || envUrl.trim() || DEFAULT_SUPABASE_URL,
+    key: localKey.trim() || envKey.trim() || DEFAULT_SUPABASE_ANON_KEY,
   };
 }
 

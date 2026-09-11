@@ -460,7 +460,18 @@ export class BoardRepository {
           description: boardObj.description || '',
         }], { onConflict: 'id' });
 
-        const { error } = await supabase.from('character_cards').upsert([card]);
+        const cleanCard = {
+          id: card.id,
+          board_id: card.board_id || 'episode-1-pilot',
+          name: card.name || 'New Suspect',
+          role: card.role || '',
+          notes: card.notes || '',
+          status: card.status || 'Unknown',
+          x: typeof card.x === 'number' ? card.x : 100,
+          y: typeof card.y === 'number' ? card.y : 100,
+          z_index: typeof card.z_index === 'number' ? card.z_index : 1,
+        };
+        const { error } = await supabase.from('character_cards').upsert([cleanCard], { onConflict: 'id' });
         if (error) {
           console.warn('Supabase upsertCard error:', error.message);
         } else {
@@ -549,7 +560,14 @@ export class BoardRepository {
           description: boardObj.description || '',
         }], { onConflict: 'id' });
 
-        const { error } = await supabase.from('string_connections').upsert([str]);
+        const cleanString = {
+          id: str.id,
+          board_id: str.board_id || 'episode-1-pilot',
+          source_id: str.source_id,
+          target_id: str.target_id,
+          label: str.label || '',
+        };
+        const { error } = await supabase.from('string_connections').upsert([cleanString], { onConflict: 'id' });
         if (error) console.warn('Supabase upsertString error:', error.message);
       } catch (err) {
         console.warn('Error upserting string to Supabase:', err);
@@ -626,7 +644,16 @@ export class BoardRepository {
           description: boardObj.description || '',
         }], { onConflict: 'id' });
 
-        const { error } = await supabase.from('sticky_notes').upsert([note]);
+        const cleanSticky = {
+          id: note.id,
+          board_id: note.board_id || 'episode-1-pilot',
+          content: note.content || '',
+          color: note.color || 'parchment',
+          x: typeof note.x === 'number' ? note.x : 100,
+          y: typeof note.y === 'number' ? note.y : 100,
+          author: note.author || '',
+        };
+        const { error } = await supabase.from('sticky_notes').upsert([cleanSticky], { onConflict: 'id' });
         if (error) console.warn('Supabase upsertSticky error:', error.message);
       } catch (err) {
         console.warn('Error upserting sticky note to Supabase:', err);
@@ -730,19 +757,46 @@ export class BoardRepository {
 
       // 2. Cards
       if (allCards.length > 0) {
-        const { error: cErr } = await supabase.from('character_cards').upsert(allCards, { onConflict: 'id' });
+        const cleanCards = allCards.map(c => ({
+          id: c.id,
+          board_id: c.board_id || 'episode-1-pilot',
+          name: c.name || 'Suspect',
+          role: c.role || '',
+          notes: c.notes || '',
+          status: c.status || 'Unknown',
+          x: typeof c.x === 'number' ? c.x : 100,
+          y: typeof c.y === 'number' ? c.y : 100,
+          z_index: typeof c.z_index === 'number' ? c.z_index : 1,
+        }));
+        const { error: cErr } = await supabase.from('character_cards').upsert(cleanCards, { onConflict: 'id' });
         if (cErr) throw new Error(`Character cards table error: ${cErr.message}`);
       }
 
       // 3. Stickies
       if (allStickies.length > 0) {
-        const { error: stErr } = await supabase.from('sticky_notes').upsert(allStickies, { onConflict: 'id' });
+        const cleanStickies = allStickies.map(st => ({
+          id: st.id,
+          board_id: st.board_id || 'episode-1-pilot',
+          content: st.content || '',
+          color: st.color || 'parchment',
+          x: typeof st.x === 'number' ? st.x : 100,
+          y: typeof st.y === 'number' ? st.y : 100,
+          author: st.author || '',
+        }));
+        const { error: stErr } = await supabase.from('sticky_notes').upsert(cleanStickies, { onConflict: 'id' });
         if (stErr) throw new Error(`Sticky notes table error: ${stErr.message}`);
       }
 
       // 4. Strings
       if (allStrings.length > 0) {
-        const { error: sErr } = await supabase.from('string_connections').upsert(allStrings, { onConflict: 'id' });
+        const cleanStrings = allStrings.map(s => ({
+          id: s.id,
+          board_id: s.board_id || 'episode-1-pilot',
+          source_id: s.source_id,
+          target_id: s.target_id,
+          label: s.label || '',
+        }));
+        const { error: sErr } = await supabase.from('string_connections').upsert(cleanStrings, { onConflict: 'id' });
         if (sErr) throw new Error(`String connections table error: ${sErr.message}`);
       }
 

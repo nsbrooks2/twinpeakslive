@@ -6,6 +6,7 @@ import https from 'https';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
 import mqtt, { MqttClient } from 'mqtt';
+import { createClient } from '@supabase/supabase-js';
 
 const app = express();
 const server = http.createServer(app);
@@ -155,6 +156,10 @@ const DEFAULT_DB: DatabaseSchema = {
         is_theory_clue: true,
       }
     ]
+  },
+  supabaseConfig: {
+    url: 'https://dkqkzmjdvjvxehsoeomd.supabase.co',
+    key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrcWt6bWpkdmp2eGVoc29lb21kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwMDA0OTgsImV4cCI6MjEwNDU3NjQ5OH0.uPQtL9fCRricdInsFOoEUYfem91nFfi9R5N5WGQotaY',
   },
   screeningState: {
     isOpen: false,
@@ -1409,6 +1414,138 @@ app.post('/api/boards/:targetBoardId/import', (req, res) => {
   });
 });
 
+function getServerSupabase() {
+  const config = db.supabaseConfig || {
+    url: process.env.VITE_SUPABASE_URL || 'https://dkqkzmjdvjvxehsoeomd.supabase.co',
+    key: process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrcWt6bWpkdmp2eGVoc29lb21kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwMDA0OTgsImV4cCI6MjEwNDU3NjQ5OH0.uPQtL9fCRricdInsFOoEUYfem91nFfi9R5N5WGQotaY',
+  };
+  if (!config.url || !config.key) return null;
+  try {
+    return createClient(config.url, config.key);
+  } catch (err) {
+    console.warn('[Server Supabase Init Error]', err);
+    return null;
+  }
+}
+
+async function serverSyncBoard(boardId: string) {
+  const supabase = getServerSupabase();
+  if (!supabase) return;
+  try {
+    const boardObj = db.boards.find(b => b.id === boardId) || {
+      id: boardId,
+      title: 'Investigation Board',
+      episode_number: 1,
+      description: '',
+    };
+    await supabase.from('boards').upsert([{
+      id: boardObj.id,
+      title: boardObj.title,
+      episode_number: boardObj.episode_number || 1,
+      description: boardObj.description || '',
+    }], { onConflict: 'id' });
+  } catch (err) {
+    console.warn('[Supabase Server Sync] board error:', err);
+  }
+}
+
+async function serverSyncCard(card: any) {
+  const supabase = getServerSupabase();
+  if (!supabase || !card) return;
+  try {
+    const boardId = card.board_id || 'episode-1-pilot';
+    await serverSyncBoard(boardId);
+    const clean = {
+      id: card.id,
+      board_id: boardId,
+      name: card.name || 'Suspect',
+      role: card.role || '',
+      notes: card.notes || '',
+      status: card.status || 'Unknown',
+      x: typeof card.x === 'number' ? card.x : 100,
+      y: typeof card.y === 'number' ? card.y : 100,
+      z_index: typeof card.z_index === 'number' ? card.z_index : 1,
+    };
+    const { error } = await supabase.from('character_cards').upsert([clean], { onConflict: 'id' });
+    if (error) console.warn('[Supabase Server Sync] card error:', error.message);
+  } catch (err) {
+    console.warn('[Supabase Server Sync] card exception:', err);
+  }
+}
+
+async function serverDeleteCard(cardId: string) {
+  const supabase = getServerSupabase();
+  if (!supabase) return;
+  try {
+    await supabase.from('character_cards').delete().eq('id', cardId);
+    await supabase.from('string_connections').delete().or(`source_id.eq.${cardId},target_id.eq.${cardId}`);
+  } catch (err) {
+    console.warn('[Supabase Server Sync] delete card error:', err);
+  }
+}
+
+async function serverSyncString(str: any) {
+  const supabase = getServerSupabase();
+  if (!supabase || !str) return;
+  try {
+    const boardId = str.board_id || 'episode-1-pilot';
+    await serverSyncBoard(boardId);
+    const clean = {
+      id: str.id,
+      board_id: boardId,
+      source_id: str.source_id,
+      target_id: str.target_id,
+      label: str.label || '',
+    };
+    const { error } = await supabase.from('string_connections').upsert([clean], { onConflict: 'id' });
+    if (error) console.warn('[Supabase Server Sync] string error:', error.message);
+  } catch (err) {
+    console.warn('[Supabase Server Sync] string exception:', err);
+  }
+}
+
+async function serverDeleteString(stringId: string) {
+  const supabase = getServerSupabase();
+  if (!supabase) return;
+  try {
+    await supabase.from('string_connections').delete().eq('id', stringId);
+  } catch (err) {
+    console.warn('[Supabase Server Sync] delete string error:', err);
+  }
+}
+
+async function serverSyncSticky(sticky: any) {
+  const supabase = getServerSupabase();
+  if (!supabase || !sticky) return;
+  try {
+    const boardId = sticky.board_id || 'episode-1-pilot';
+    await serverSyncBoard(boardId);
+    const clean = {
+      id: sticky.id,
+      board_id: boardId,
+      content: sticky.content || '',
+      color: sticky.color || 'parchment',
+      x: typeof sticky.x === 'number' ? sticky.x : 100,
+      y: typeof sticky.y === 'number' ? sticky.y : 100,
+      author: sticky.author || '',
+    };
+    const { error } = await supabase.from('sticky_notes').upsert([clean], { onConflict: 'id' });
+    if (error) console.warn('[Supabase Server Sync] sticky error:', error.message);
+  } catch (err) {
+    console.warn('[Supabase Server Sync] sticky exception:', err);
+  }
+}
+
+async function serverDeleteSticky(stickyId: string) {
+  const supabase = getServerSupabase();
+  if (!supabase) return;
+  try {
+    await supabase.from('sticky_notes').delete().eq('id', stickyId);
+  } catch (err) {
+    console.warn('[Supabase Server Sync] delete sticky error:', err);
+  }
+}
+
 // Cards endpoints
 app.post('/api/boards/:boardId/cards', (req, res) => {
   const card = req.body;
@@ -1423,6 +1560,7 @@ app.post('/api/boards/:boardId/cards', (req, res) => {
   const boardId = card.board_id || req.params.boardId;
   recordSyncEvent('card:upsert', { card }, undefined, boardId);
   broadcastToAll({ type: 'card:upsert', payload: { card } });
+  serverSyncCard(card).catch(() => {});
   res.json({ success: true, card });
 });
 
@@ -1433,6 +1571,7 @@ app.delete('/api/boards/:boardId/cards/:cardId', (req, res) => {
   scheduleSaveDatabase();
   recordSyncEvent('card:delete', { id: cardId }, undefined, boardId);
   broadcastToAll({ type: 'card:delete', payload: { id: cardId } });
+  serverDeleteCard(cardId).catch(() => {});
   res.json({ success: true });
 });
 
@@ -1450,6 +1589,7 @@ app.post('/api/boards/:boardId/strings', (req, res) => {
   const boardId = string.board_id || req.params.boardId;
   recordSyncEvent('string:upsert', { string }, undefined, boardId);
   broadcastToAll({ type: 'string:upsert', payload: { string } });
+  serverSyncString(string).catch(() => {});
   res.json({ success: true, string });
 });
 
@@ -1459,6 +1599,7 @@ app.delete('/api/boards/:boardId/strings/:stringId', (req, res) => {
   scheduleSaveDatabase();
   recordSyncEvent('string:delete', { id: stringId }, undefined, boardId);
   broadcastToAll({ type: 'string:delete', payload: { id: stringId } });
+  serverDeleteString(stringId).catch(() => {});
   res.json({ success: true });
 });
 
@@ -1476,6 +1617,7 @@ app.post('/api/boards/:boardId/stickies', (req, res) => {
   const boardId = sticky.board_id || req.params.boardId;
   recordSyncEvent('sticky:upsert', { sticky }, undefined, boardId);
   broadcastToAll({ type: 'sticky:upsert', payload: { sticky } });
+  serverSyncSticky(sticky).catch(() => {});
   res.json({ success: true, sticky });
 });
 
@@ -1485,6 +1627,7 @@ app.delete('/api/boards/:boardId/stickies/:stickyId', (req, res) => {
   scheduleSaveDatabase();
   recordSyncEvent('sticky:delete', { id: stickyId }, undefined, boardId);
   broadcastToAll({ type: 'sticky:delete', payload: { id: stickyId } });
+  serverDeleteSticky(stickyId).catch(() => {});
   res.json({ success: true });
 });
 

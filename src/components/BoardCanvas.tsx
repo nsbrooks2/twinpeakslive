@@ -548,6 +548,24 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
     }
   };
 
+  const handlePushAllToSupabase = async () => {
+    setIsTestingConn(true);
+    setConnStatusMessage('Syncing all cards, notes, and strings to Supabase...');
+    const result = await BoardRepository.pushAllToSupabase();
+    setIsTestingConn(false);
+    if (result.success) {
+      setConnStatusMessage(
+        `Database Populated! Saved ${result.cardsCount} cards, ${result.stickiesCount} notes, and ${result.stringsCount} connections to Supabase.`
+      );
+      alert(
+        `Database Populated Successfully!\n\n• Character Cards: ${result.cardsCount}\n• Sticky Notes: ${result.stickiesCount}\n• Red String Connections: ${result.stringsCount}\n\nAll records are now written directly to your Supabase SQL database!`
+      );
+    } else {
+      setConnStatusMessage(`Database Sync Error: ${result.error}`);
+      alert(`Failed to populate database:\n${result.error}`);
+    }
+  };
+
   // Broadcast helper
   const broadcastChange = useCallback(
     (event: any) => {
@@ -1717,13 +1735,21 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
                 setIsTestingConn(true);
                 saveSupabaseCredentials(connUrl.trim(), connKey.trim());
                 const res = await testSupabaseConnection();
-                setIsTestingConn(false);
-                setSupabaseConnected(res.ok);
-                setConnStatusMessage(res.ok ? 'Connection verified! Reloading sync...' : (res.message || 'Connection failed'));
                 if (res.ok) {
+                  setSupabaseConnected(true);
+                  setConnStatusMessage('Connection verified! Populating database tables...');
+                  const syncRes = await BoardRepository.pushAllToSupabase();
+                  setIsTestingConn(false);
+                  setConnStatusMessage(
+                    `Verified & Populated! Saved ${syncRes.cardsCount} cards, ${syncRes.stickiesCount} notes to Supabase.`
+                  );
                   setTimeout(() => {
                     window.location.reload();
                   }, 1200);
+                } else {
+                  setIsTestingConn(false);
+                  setSupabaseConnected(false);
+                  setConnStatusMessage(res.message || 'Connection failed');
                 }
               }}
               className="space-y-3 pt-2 border-t border-[#382216]"
@@ -1757,8 +1783,30 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
                 />
               </div>
 
-              {/* Clear / Wipe All Data Section */}
+              {/* Populate / Seed Database Section */}
               <div className="pt-3 border-t border-[#382216]">
+                <div className="flex items-center justify-between p-3 rounded-lg bg-[#24130b] border border-[#5a3928]">
+                  <div>
+                    <span className="font-typewriter text-xs font-bold text-[#e5c158] uppercase block">
+                      Populate Supabase Database
+                    </span>
+                    <span className="text-[10px] text-[#a08774]">
+                      Write all current character cards, stickies, and red yarn strings to Supabase.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handlePushAllToSupabase}
+                    disabled={isTestingConn}
+                    className="bg-[#3a2012] hover:bg-[#4d2a18] text-[#f5ebd4] font-typewriter text-xs uppercase px-3 py-1.5 rounded border border-[#714732] transition-colors cursor-pointer whitespace-nowrap disabled:opacity-50"
+                  >
+                    Populate Database
+                  </button>
+                </div>
+              </div>
+
+              {/* Clear / Wipe All Data Section */}
+              <div className="pt-2 border-t border-[#382216]">
                 <div className="flex items-center justify-between p-3 rounded-lg bg-red-950/20 border border-red-900/40">
                   <div>
                     <span className="font-typewriter text-xs font-bold text-red-400 uppercase block">

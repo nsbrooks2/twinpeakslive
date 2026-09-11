@@ -110,6 +110,82 @@ export class BoardRepository {
     return local;
   }
 
+  // Helper: Load board details from server or local storage
+  private static async loadBoardDetailsFromServerOrLocal(boardId: string): Promise<{
+    cards: CharacterCard[];
+    strings: StringConnection[];
+    stickies: StickyNote[];
+  }> {
+    try {
+      const res = await fetch(getApiUrl(`/api/boards/${boardId}`));
+      if (res.ok) {
+        const data = await res.json();
+        if (data && (Array.isArray(data.cards) || Array.isArray(data.strings) || Array.isArray(data.stickies))) {
+          const cards = data.cards || [];
+          const strings = data.strings || [];
+          const stickies = data.stickies || [];
+          return { cards, strings, stickies };
+        }
+      }
+    } catch (err) {
+      console.warn('Server loadBoardDetails failed:', err);
+    }
+
+    const allCards = this.getLocal<CharacterCard[]>(STORAGE_KEYS.CARDS, []);
+    const allStrings = this.getLocal<StringConnection[]>(STORAGE_KEYS.STRINGS, []);
+    const allStickies = this.getLocal<StickyNote[]>(STORAGE_KEYS.STICKIES, []);
+
+    return {
+      cards: allCards.filter(c => c.board_id === boardId),
+      strings: allStrings.filter(s => s.board_id === boardId),
+      stickies: allStickies.filter(n => n.board_id === boardId),
+    };
+  }
+
+  // Helper: Sync cards, strings, stickies to Supabase
+  private static async syncItemsToSupabase(
+    boardId: string,
+    cards: CharacterCard[],
+    strings: StringConnection[],
+    stickies: StickyNote[]
+  ) {
+    const supabase = getSupabase();
+    if (!supabase) return;
+
+    try {
+      // Ensure parent board exists in Supabase
+      const allBoards = await this.loadBoards();
+      const boardObj = allBoards.find(b => b.id === boardId) || {
+        id: boardId,
+        title: 'Investigation Board',
+        episode_number: 1,
+        description: '',
+      };
+
+      await supabase.from('boards').upsert([{
+        id: boardObj.id,
+        title: boardObj.title,
+        episode_number: boardObj.episode_number || 1,
+        description: boardObj.description || '',
+      }], { onConflict: 'id' });
+
+      if (cards.length > 0) {
+        const { error } = await supabase.from('character_cards').upsert(cards, { onConflict: 'id' });
+        if (error) console.warn('Auto-seed cards error:', error.message);
+      }
+      if (stickies.length > 0) {
+        const { error } = await supabase.from('sticky_notes').upsert(stickies, { onConflict: 'id' });
+        if (error) console.warn('Auto-seed stickies error:', error.message);
+      }
+      if (strings.length > 0) {
+        const { error } = await supabase.from('string_connections').upsert(strings, { onConflict: 'id' });
+        if (error) console.warn('Auto-seed strings error:', error.message);
+      }
+    } catch (err) {
+      console.warn('syncItemsToSupabase error:', err);
+    }
+  }
+
   // Load all items for a board
   static async loadBoardDetails(boardId: string): Promise<{
     cards: CharacterCard[];
@@ -127,9 +203,24 @@ export class BoardRepository {
         ]);
 
         if (!cardsRes.error && !stringsRes.error && !stickiesRes.error) {
-          const cards = cardsRes.data || [];
-          const strings = stringsRes.data || [];
-          const stickies = stickiesRes.data || [];
+          let cards = cardsRes.data || [];
+          let strings = stringsRes.data || [];
+          let stickies = stickiesRes.data || [];
+
+          // If Supabase returned empty for this board, auto-seed from server or local seed data!
+          if (cards.length === 0 && stickies.length === 0) {
+            const serverOrLocal = await this.loadBoardDetailsFromServerOrLocal(boardId);
+            if (serverOrLocal.cards.length > 0 || serverOrLocal.stickies.length > 0) {
+              cards = serverOrLocal.cards;
+              strings = serverOrLocal.strings;
+              stickies = serverOrLocal.stickies;
+
+              // Auto-seed to Supabase in background
+              this.syncItemsToSupabase(boardId, cards, strings, stickies).catch(err => {
+                console.warn('Auto-seed to Supabase failed:', err);
+              });
+            }
+          }
 
           // Cache in local storage
           const allCards = this.getLocal<CharacterCard[]>(STORAGE_KEYS.CARDS, []);
@@ -156,49 +247,7 @@ export class BoardRepository {
     }
 
     // 2. Try Server API
-    try {
-      const res = await fetch(getApiUrl(`/api/boards/${boardId}`));
-      if (res.ok) {
-        const data = await res.json();
-        if (data && (Array.isArray(data.cards) || Array.isArray(data.strings) || Array.isArray(data.stickies))) {
-          const cards = data.cards || [];
-          const strings = data.strings || [];
-          const stickies = data.stickies || [];
-
-          // Cache in local
-          const allCards = this.getLocal<CharacterCard[]>(STORAGE_KEYS.CARDS, []);
-          const otherCards = allCards.filter(c => c.board_id !== boardId);
-          this.setLocal(STORAGE_KEYS.CARDS, [...otherCards, ...cards]);
-
-          const allStrings = this.getLocal<StringConnection[]>(STORAGE_KEYS.STRINGS, []);
-          const otherStrings = allStrings.filter(s => s.board_id !== boardId);
-          this.setLocal(STORAGE_KEYS.STRINGS, [...otherStrings, ...strings]);
-
-          const allStickies = this.getLocal<StickyNote[]>(STORAGE_KEYS.STICKIES, []);
-          const otherStickies = allStickies.filter(s => s.board_id !== boardId);
-          this.setLocal(STORAGE_KEYS.STICKIES, [...otherStickies, ...stickies]);
-
-          return { cards, strings, stickies };
-        }
-      }
-    } catch (err) {
-      console.warn('Server loadBoardDetails failed, falling back:', err);
-    }
-
-    // 3. Local fallback
-    const allCards = this.getLocal<CharacterCard[]>(STORAGE_KEYS.CARDS, []);
-    const allStrings = this.getLocal<StringConnection[]>(STORAGE_KEYS.STRINGS, []);
-    const allStickies = this.getLocal<StickyNote[]>(STORAGE_KEYS.STICKIES, []);
-
-    const boardCards = allCards.filter(c => c.board_id === boardId);
-    const boardStrings = allStrings.filter(s => s.board_id === boardId);
-    const boardStickies = allStickies.filter(n => n.board_id === boardId);
-
-    return {
-      cards: boardCards,
-      strings: boardStrings,
-      stickies: boardStickies,
-    };
+    return this.loadBoardDetailsFromServerOrLocal(boardId);
   }
 
   // Create new board (with optional duplicate)
@@ -637,6 +686,81 @@ export class BoardRepository {
       } catch (err) {
         console.warn('Error clearing Supabase tables:', err);
       }
+    }
+  }
+
+  // Bulk push/sync all boards, cards, stickies, and string connections to Supabase
+  static async pushAllToSupabase(): Promise<{
+    success: boolean;
+    cardsCount: number;
+    stickiesCount: number;
+    stringsCount: number;
+    error?: string;
+  }> {
+    const supabase = getSupabase();
+    if (!supabase) {
+      return {
+        success: false,
+        cardsCount: 0,
+        stickiesCount: 0,
+        stringsCount: 0,
+        error: 'Supabase credentials are not configured or invalid.',
+      };
+    }
+
+    try {
+      const boards = await this.loadBoards();
+      const allCards = this.getLocal<CharacterCard[]>(STORAGE_KEYS.CARDS, []);
+      const allStickies = this.getLocal<StickyNote[]>(STORAGE_KEYS.STICKIES, []);
+      const allStrings = this.getLocal<StringConnection[]>(STORAGE_KEYS.STRINGS, []);
+
+      // 1. Boards
+      if (boards.length > 0) {
+        const { error: bErr } = await supabase.from('boards').upsert(
+          boards.map(b => ({
+            id: b.id,
+            title: b.title,
+            episode_number: b.episode_number || 1,
+            description: b.description || '',
+          })),
+          { onConflict: 'id' }
+        );
+        if (bErr) throw new Error(`Boards table error: ${bErr.message}`);
+      }
+
+      // 2. Cards
+      if (allCards.length > 0) {
+        const { error: cErr } = await supabase.from('character_cards').upsert(allCards, { onConflict: 'id' });
+        if (cErr) throw new Error(`Character cards table error: ${cErr.message}`);
+      }
+
+      // 3. Stickies
+      if (allStickies.length > 0) {
+        const { error: stErr } = await supabase.from('sticky_notes').upsert(allStickies, { onConflict: 'id' });
+        if (stErr) throw new Error(`Sticky notes table error: ${stErr.message}`);
+      }
+
+      // 4. Strings
+      if (allStrings.length > 0) {
+        const { error: sErr } = await supabase.from('string_connections').upsert(allStrings, { onConflict: 'id' });
+        if (sErr) throw new Error(`String connections table error: ${sErr.message}`);
+      }
+
+      return {
+        success: true,
+        cardsCount: allCards.length,
+        stickiesCount: allStickies.length,
+        stringsCount: allStrings.length,
+      };
+    } catch (err: any) {
+      console.error('pushAllToSupabase failed:', err);
+      return {
+        success: false,
+        cardsCount: 0,
+        stickiesCount: 0,
+        stringsCount: 0,
+        error: err.message || String(err),
+      };
     }
   }
 }

@@ -270,12 +270,20 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
     const unsubCardMove = realtimeClient.on('card:move', (event) => {
       if (draggingItemRef.current?.id === event.id) return;
       setCards((prev) =>
-        prev.map((c) => (c.id === event.id ? { ...c, x: event.x, y: event.y } : c))
+        prev.map((c) => {
+          if (c.id === event.id) {
+            const updated = { ...c, x: event.x, y: event.y };
+            BoardRepository.saveLocalCard(updated);
+            return updated;
+          }
+          return c;
+        })
       );
     });
 
     const unsubCardUpsert = realtimeClient.on('card:upsert', (event) => {
       if (event.card) {
+        BoardRepository.saveLocalCard(event.card);
         setCards((prev) => {
           const idx = prev.findIndex((c) => c.id === event.card.id);
           if (idx >= 0) {
@@ -289,6 +297,7 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
     });
 
     const unsubCardDelete = realtimeClient.on('card:delete', (event) => {
+      BoardRepository.removeLocalCard(event.id);
       setCards((prev) => prev.filter((c) => c.id !== event.id));
       setStrings((prev) =>
         prev.filter((s) => s.source_id !== event.id && s.target_id !== event.id)
@@ -297,6 +306,7 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
 
     const unsubStringUpsert = realtimeClient.on('string:upsert', (event) => {
       if (event.string) {
+        BoardRepository.saveLocalString(event.string);
         setStrings((prev) => {
           const idx = prev.findIndex((s) => s.id === event.string.id);
           if (idx >= 0) {
@@ -310,18 +320,27 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
     });
 
     const unsubStringDelete = realtimeClient.on('string:delete', (event) => {
+      BoardRepository.removeLocalString(event.id);
       setStrings((prev) => prev.filter((s) => s.id !== event.id));
     });
 
     const unsubStickyMove = realtimeClient.on('sticky:move', (event) => {
       if (draggingItemRef.current?.id === event.id) return;
       setStickies((prev) =>
-        prev.map((s) => (s.id === event.id ? { ...s, x: event.x, y: event.y } : s))
+        prev.map((s) => {
+          if (s.id === event.id) {
+            const updated = { ...s, x: event.x, y: event.y };
+            BoardRepository.saveLocalSticky(updated);
+            return updated;
+          }
+          return s;
+        })
       );
     });
 
     const unsubStickyUpsert = realtimeClient.on('sticky:upsert', (event) => {
       if (event.sticky) {
+        BoardRepository.saveLocalSticky(event.sticky);
         setStickies((prev) => {
           const idx = prev.findIndex((s) => s.id === event.sticky.id);
           if (idx >= 0) {
@@ -335,6 +354,7 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
     });
 
     const unsubStickyDelete = realtimeClient.on('sticky:delete', (event) => {
+      BoardRepository.removeLocalSticky(event.id);
       setStickies((prev) => prev.filter((s) => s.id !== event.id));
     });
 

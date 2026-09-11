@@ -567,8 +567,8 @@ export class BoardRepository {
     };
   }
 
-  // Save/Upsert single card
-  static async upsertCard(card: CharacterCard) {
+  // Local cache update helpers for realtime events
+  static saveLocalCard(card: CharacterCard) {
     this.removeDeletedId(card.id);
     const allCards = this.getLocal<CharacterCard[]>(STORAGE_KEYS.CARDS, []);
     const idx = allCards.findIndex(c => c.id === card.id);
@@ -578,6 +578,53 @@ export class BoardRepository {
       allCards.push(card);
     }
     this.setLocal(STORAGE_KEYS.CARDS, allCards);
+  }
+
+  static saveLocalSticky(sticky: StickyNote) {
+    this.removeDeletedId(sticky.id);
+    const allStickies = this.getLocal<StickyNote[]>(STORAGE_KEYS.STICKIES, []);
+    const idx = allStickies.findIndex(s => s.id === sticky.id);
+    if (idx >= 0) {
+      allStickies[idx] = sticky;
+    } else {
+      allStickies.push(sticky);
+    }
+    this.setLocal(STORAGE_KEYS.STICKIES, allStickies);
+  }
+
+  static saveLocalString(str: StringConnection) {
+    this.removeDeletedId(str.id);
+    const allStrings = this.getLocal<StringConnection[]>(STORAGE_KEYS.STRINGS, []);
+    const idx = allStrings.findIndex(s => s.id === str.id);
+    if (idx >= 0) {
+      allStrings[idx] = str;
+    } else {
+      allStrings.push(str);
+    }
+    this.setLocal(STORAGE_KEYS.STRINGS, allStrings);
+  }
+
+  static removeLocalCard(cardId: string) {
+    this.addDeletedId(cardId);
+    const allCards = this.getLocal<CharacterCard[]>(STORAGE_KEYS.CARDS, []);
+    this.setLocal(STORAGE_KEYS.CARDS, allCards.filter(c => c.id !== cardId));
+  }
+
+  static removeLocalSticky(stickyId: string) {
+    this.addDeletedId(stickyId);
+    const allStickies = this.getLocal<StickyNote[]>(STORAGE_KEYS.STICKIES, []);
+    this.setLocal(STORAGE_KEYS.STICKIES, allStickies.filter(s => s.id !== stickyId));
+  }
+
+  static removeLocalString(stringId: string) {
+    this.addDeletedId(stringId);
+    const allStrings = this.getLocal<StringConnection[]>(STORAGE_KEYS.STRINGS, []);
+    this.setLocal(STORAGE_KEYS.STRINGS, allStrings.filter(s => s.id !== stringId));
+  }
+
+  // Save/Upsert single card
+  static async upsertCard(card: CharacterCard) {
+    this.saveLocalCard(card);
 
     // Save to Server
     try {

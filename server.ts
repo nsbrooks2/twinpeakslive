@@ -688,7 +688,7 @@ wss.on('connection', (ws: WebSocket) => {
             card.x = x;
             card.y = y;
             card.updated_at = new Date().toISOString();
-            scheduleSaveDatabase();
+            saveDatabaseImmediate();
           }
           recordSyncEvent('card:move', msg.payload, connectedUsers.get(ws)?.id, boardId);
           broadcastToOthers(ws, msg);
@@ -704,7 +704,7 @@ wss.on('connection', (ws: WebSocket) => {
             } else {
               db.cards.push(card);
             }
-            scheduleSaveDatabase();
+            saveDatabaseImmediate();
           }
           recordSyncEvent('card:upsert', msg.payload, connectedUsers.get(ws)?.id, card?.board_id);
           broadcastToOthers(ws, msg);
@@ -715,7 +715,7 @@ wss.on('connection', (ws: WebSocket) => {
           const { id } = msg.payload;
           db.cards = db.cards.filter((c) => c.id !== id);
           db.strings = db.strings.filter((s) => s.source_id !== id && s.target_id !== id);
-          scheduleSaveDatabase();
+          saveDatabaseImmediate();
           recordSyncEvent('card:delete', msg.payload, connectedUsers.get(ws)?.id);
           broadcastToOthers(ws, msg);
           break;
@@ -730,7 +730,7 @@ wss.on('connection', (ws: WebSocket) => {
             } else {
               db.strings.push(string);
             }
-            scheduleSaveDatabase();
+            saveDatabaseImmediate();
           }
           recordSyncEvent('string:upsert', msg.payload, connectedUsers.get(ws)?.id, string?.board_id);
           broadcastToOthers(ws, msg);
@@ -740,7 +740,7 @@ wss.on('connection', (ws: WebSocket) => {
         case 'string:delete': {
           const { id } = msg.payload;
           db.strings = db.strings.filter((s) => s.id !== id);
-          scheduleSaveDatabase();
+          saveDatabaseImmediate();
           recordSyncEvent('string:delete', msg.payload, connectedUsers.get(ws)?.id);
           broadcastToOthers(ws, msg);
           break;
@@ -752,7 +752,7 @@ wss.on('connection', (ws: WebSocket) => {
           if (sticky) {
             sticky.x = x;
             sticky.y = y;
-            scheduleSaveDatabase();
+            saveDatabaseImmediate();
           }
           recordSyncEvent('sticky:move', msg.payload, connectedUsers.get(ws)?.id);
           broadcastToOthers(ws, msg);
@@ -768,7 +768,7 @@ wss.on('connection', (ws: WebSocket) => {
             } else {
               db.stickies.push(sticky);
             }
-            scheduleSaveDatabase();
+            saveDatabaseImmediate();
           }
           recordSyncEvent('sticky:upsert', msg.payload, connectedUsers.get(ws)?.id, sticky?.board_id);
           broadcastToOthers(ws, msg);
@@ -778,7 +778,7 @@ wss.on('connection', (ws: WebSocket) => {
         case 'sticky:delete': {
           const { id } = msg.payload;
           db.stickies = db.stickies.filter((s) => s.id !== id);
-          scheduleSaveDatabase();
+          saveDatabaseImmediate();
           recordSyncEvent('sticky:delete', msg.payload, connectedUsers.get(ws)?.id);
           broadcastToOthers(ws, msg);
           break;
@@ -973,7 +973,7 @@ app.post('/api/sync/broadcast', (req, res) => {
         card.x = x;
         card.y = y;
         card.updated_at = new Date().toISOString();
-        scheduleSaveDatabase();
+        saveDatabaseImmediate();
       }
       break;
     }
@@ -986,7 +986,7 @@ app.post('/api/sync/broadcast', (req, res) => {
         } else {
           db.cards.push(card);
         }
-        scheduleSaveDatabase();
+        saveDatabaseImmediate();
       }
       break;
     }
@@ -994,7 +994,7 @@ app.post('/api/sync/broadcast', (req, res) => {
       const { id } = payload || {};
       db.cards = db.cards.filter((c) => c.id !== id);
       db.strings = db.strings.filter((s) => s.source_id !== id && s.target_id !== id);
-      scheduleSaveDatabase();
+      saveDatabaseImmediate();
       break;
     }
     case 'string:upsert': {
@@ -1006,14 +1006,14 @@ app.post('/api/sync/broadcast', (req, res) => {
         } else {
           db.strings.push(string);
         }
-        scheduleSaveDatabase();
+        saveDatabaseImmediate();
       }
       break;
     }
     case 'string:delete': {
       const { id } = payload || {};
       db.strings = db.strings.filter((s) => s.id !== id);
-      scheduleSaveDatabase();
+      saveDatabaseImmediate();
       break;
     }
     case 'sticky:move': {
@@ -1022,7 +1022,7 @@ app.post('/api/sync/broadcast', (req, res) => {
       if (sticky) {
         sticky.x = x;
         sticky.y = y;
-        scheduleSaveDatabase();
+        saveDatabaseImmediate();
       }
       break;
     }
@@ -1035,21 +1035,21 @@ app.post('/api/sync/broadcast', (req, res) => {
         } else {
           db.stickies.push(sticky);
         }
-        scheduleSaveDatabase();
+        saveDatabaseImmediate();
       }
       break;
     }
     case 'sticky:delete': {
       const { id } = payload || {};
       db.stickies = db.stickies.filter((s) => s.id !== id);
-      scheduleSaveDatabase();
+      saveDatabaseImmediate();
       break;
     }
     case 'board:create': {
       const { board } = payload || {};
       if (board && !db.boards.some((b) => b.id === board.id)) {
         db.boards.push(board);
-        scheduleSaveDatabase();
+        saveDatabaseImmediate();
       }
       break;
     }

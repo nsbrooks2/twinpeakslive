@@ -1,4 +1,6 @@
 import { PresenceUser, CharacterCard, StringConnection, StickyNote, EpisodeBoard } from '../types';
+import { p2pSync } from './p2pSync';
+import { cloudRelay } from './cloudRelay';
 
 export interface WatchPartySyncPayload {
   isOpen?: boolean;
@@ -98,6 +100,91 @@ class RealtimeClient {
   private init() {
     this.connect();
     this.startHeartbeatAndPolling();
+
+    // 1. Universal Cloud Relay (Guaranteed delivery across ais-dev, ais-pre, containers & networks)
+    cloudRelay.onConnectionChange((connected) => {
+      if (connected) {
+        this.connectionMode = 'websocket';
+        this.emit('connection', { status: 'connected_relay', mode: 'cloud_relay' });
+      }
+    });
+
+    cloudRelay.onMessage((msg) => {
+      if (msg.type === 'presence:update') {
+        const remoteList = msg.payload.onlineUsers || [];
+        // Merge remote cloud relay users into our local list
+        const merged = [...this.onlineUsers];
+        remoteList.forEach((ru: PresenceUser) => {
+          const idx = merged.findIndex((u) => u.email.toLowerCase() === ru.email.toLowerCase());
+          if (idx >= 0) {
+            merged[idx] = { ...merged[idx], ...ru };
+          } else {
+            merged.push(ru);
+          }
+        });
+        this.onlineUsers = merged;
+        this.emit('presence:update', { onlineUsers: this.onlineUsers });
+      } else if (msg.type === 'state:request') {
+        this.emit('p2p:request_state', msg.payload);
+      } else if (msg.type === 'state:snapshot') {
+        this.emit('p2p:apply_snapshot', msg.payload?.snapshot || msg.payload);
+      } else {
+        // Forward card moves, stickies, strings, watch playback, etc.
+        this.emit(msg.type, msg.payload);
+      }
+    });
+
+    // 2. Direct Cross-Region Peer-to-Peer Relay (PeerJS WebRTC DataChannel)
+    p2pSync.onConnectionStateChange((connected) => {
+      if (connected) {
+        this.connectionMode = 'websocket';
+        this.emit('connection', { status: 'connected_p2p', mode: 'p2p' });
+      }
+    });
+
+    p2pSync.onMessage((msg) => {
+      if (msg.type === 'presence:hello' || msg.type === 'presence:ack') {
+        const partner = msg.user;
+        const exists = this.onlineUsers.some((u) => u.email.toLowerCase() === partner.email.toLowerCase());
+        if (!exists) {
+          this.onlineUsers = [...this.onlineUsers, partner];
+          this.emit('presence:update', { onlineUsers: this.onlineUsers });
+        }
+      } else if (msg.type === 'state:request') {
+        this.emit('p2p:request_state', msg);
+      } else if (msg.type === 'state:snapshot') {
+        this.emit('p2p:apply_snapshot', msg.snapshot);
+      } else {
+        // Forward any board, watch party, or signaling events
+        this.emit(msg.type, (msg as any).payload);
+      }
+    });
+
+    // 3. Mobile & Cross-Device Lifecycle Resynchronization (iOS Safari / Android background tab wake-up)
+    if (typeof window !== 'undefined') {
+      const handleMobileWakeUp = () => {
+        console.log('[RealtimeClient] Device wake-up detected (phone/tablet/tab). Resynchronizing state...');
+        if (this.currentUser) {
+          this.joinPresence(this.currentUser, this.currentBoardId, this.currentIsWatching);
+        }
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+          this.connect();
+        }
+        this.sendHeartbeat();
+        this.pollSyncEvents();
+        cloudRelay.requestStateSnapshot();
+      };
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          handleMobileWakeUp();
+        }
+      });
+
+      window.addEventListener('focus', handleMobileWakeUp);
+      window.addEventListener('online', handleMobileWakeUp);
+      window.addEventListener('pageshow', handleMobileWakeUp);
+    }
   }
 
   public getConnectionMode(): ConnectionMode {
@@ -333,9 +420,15 @@ class RealtimeClient {
     }
   }
 
-  // Dual-Engine Send: Dispatches via WebSocket if open, and HTTP broadcast relay for persistence
+  // Triple-Engine Send: Dispatches via Cloud Relay, P2P DataChannel, WebSocket, and HTTP
   public send(type: string, payload: any) {
-    // 1. Try WebSocket if OPEN
+    // 1. Universal Cloud Relay (Crosses ais-dev, ais-pre, containers & states guaranteed)
+    cloudRelay.publish(type, payload);
+
+    // 2. Direct Peer-to-Peer DataChannel (WebRTC)
+    p2pSync.send({ type: type as any, payload });
+
+    // 3. Try WebSocket if OPEN
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(JSON.stringify({ type, payload }));
@@ -344,7 +437,7 @@ class RealtimeClient {
       }
     }
 
-    // 2. Also dispatch via HTTP relay endpoint to guarantee sync if partner is in another instance or mobile
+    // 4. Also dispatch via HTTP relay endpoint to guarantee sync if partner is in another instance or mobile
     const customBase = this.getServerBaseUrl();
     const url = `${customBase}/api/sync/broadcast`;
     fetch(url, {
@@ -366,6 +459,21 @@ class RealtimeClient {
     this.currentUser = user;
     this.currentBoardId = boardId;
     this.currentIsWatching = isWatching;
+
+    const presencePayload = {
+      user_id: (user as any).id || (user as any).user_id || user.email,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      avatar: user.avatar,
+      activeBoardId: boardId,
+      isWatching,
+      last_seen: new Date().toISOString(),
+    };
+
+    cloudRelay.start(presencePayload, boardId, isWatching);
+    p2pSync.start(presencePayload, boardId);
+
     this.send('presence:join', { user, boardId, isWatching });
     this.sendHeartbeat();
   }
@@ -373,6 +481,22 @@ class RealtimeClient {
   public updateActivity(boardId: string, isWatching: boolean) {
     this.currentBoardId = boardId;
     this.currentIsWatching = isWatching;
+    if (this.currentUser) {
+      cloudRelay.start(
+        {
+          user_id: (this.currentUser as any).id || (this.currentUser as any).user_id || this.currentUser.email,
+          name: this.currentUser.name,
+          email: this.currentUser.email,
+          role: this.currentUser.role,
+          avatar: this.currentUser.avatar,
+          activeBoardId: boardId,
+          isWatching,
+          last_seen: new Date().toISOString(),
+        },
+        boardId,
+        isWatching
+      );
+    }
     this.send('presence:activity', { activeBoardId: boardId, isWatching });
     this.sendHeartbeat();
   }

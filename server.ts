@@ -5,6 +5,7 @@ import fs from 'fs';
 import https from 'https';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
+import mqtt, { MqttClient } from 'mqtt';
 
 const app = express();
 const server = http.createServer(app);
@@ -299,6 +300,259 @@ function recordSyncEvent(type: string, payload: any, senderId?: string, boardId?
   return event;
 }
 
+// Server Mesh Synchronization (Bi-directional MQTT mesh across all Cloud Run instances & previews)
+const SERVER_INSTANCE_ID = `tp-srv-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+const SERVER_MESH_TOPIC = 'twinpeaks/servermesh/v2/sheriff-global';
+let mqttServerClient: MqttClient | null = null;
+let isServerMeshConnected = false;
+
+function initServerMesh() {
+  try {
+    mqttServerClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+      clientId: SERVER_INSTANCE_ID,
+      clean: true,
+      connectTimeout: 5000,
+      reconnectPeriod: 3000,
+    });
+
+    mqttServerClient.on('connect', () => {
+      console.log(`[ServerMesh] Connected to global server synchronization mesh (${SERVER_INSTANCE_ID})`);
+      isServerMeshConnected = true;
+      mqttServerClient?.subscribe(SERVER_MESH_TOPIC, { qos: 0 });
+
+      // Request state from any peer server
+      setTimeout(() => {
+        publishServerMesh('server_mesh:state_request', { requesterId: SERVER_INSTANCE_ID });
+      }, 500);
+    });
+
+    mqttServerClient.on('message', (topic, rawMessage) => {
+      try {
+        const str = rawMessage.toString();
+        const msg = JSON.parse(str);
+        if (msg.serverInstanceId === SERVER_INSTANCE_ID) {
+          return; // Ignore own echo
+        }
+        handleRemoteServerMessage(msg);
+      } catch (e) {
+        console.warn('[ServerMesh] Message parse error:', e);
+      }
+    });
+
+    mqttServerClient.on('error', (err) => {
+      console.warn('[ServerMesh] MQTT error:', err?.message || err);
+    });
+  } catch (err) {
+    console.error('[ServerMesh] Connection error:', err);
+  }
+}
+
+function publishServerMesh(type: string, payload: any, originSenderId?: string) {
+  if (!mqttServerClient || !isServerMeshConnected) return;
+  try {
+    mqttServerClient.publish(
+      SERVER_MESH_TOPIC,
+      JSON.stringify({
+        serverInstanceId: SERVER_INSTANCE_ID,
+        type,
+        payload,
+        originSenderId,
+        timestamp: Date.now(),
+      }),
+      { qos: 0 }
+    );
+  } catch (e) {
+    console.warn('[ServerMesh] Publish error:', e);
+  }
+}
+
+function handleRemoteServerMessage(msg: { type: string; payload: any; originSenderId?: string }) {
+  const { type, payload } = msg;
+
+  if (type === 'server_mesh:state_request') {
+    publishServerMesh('server_mesh:state_snapshot', {
+      cards: db.cards,
+      stickies: db.stickies,
+      strings: db.strings,
+      boards: db.boards,
+      screeningState: db.screeningState,
+      users: getPublicOnlineUsers(),
+    });
+    return;
+  }
+
+  if (type === 'server_mesh:state_snapshot') {
+    const snap = payload;
+    if (snap) {
+      if (Array.isArray(snap.cards) && snap.cards.length > 0 && db.cards.length === 0) db.cards = snap.cards;
+      if (Array.isArray(snap.stickies) && snap.stickies.length > 0 && db.stickies.length === 0) db.stickies = snap.stickies;
+      if (Array.isArray(snap.strings) && snap.strings.length > 0 && db.strings.length === 0) db.strings = snap.strings;
+      if (Array.isArray(snap.boards) && snap.boards.length > 0) db.boards = snap.boards;
+      if (snap.screeningState) db.screeningState = { ...db.screeningState, ...snap.screeningState };
+      scheduleSaveDatabase();
+
+      if (Array.isArray(snap.users)) {
+        snap.users.forEach((u: any) => {
+          if (u.email) {
+            activeUserRegistry.set(u.email.toLowerCase().trim(), {
+              user_id: u.user_id || u.email,
+              name: u.name,
+              email: u.email,
+              role: u.role || 'Investigator',
+              avatar: u.avatar || '🌲',
+              activeBoardId: u.activeBoardId || 'episode-1-pilot',
+              isWatching: !!u.isWatching,
+              lastSeen: Date.now(),
+              connectedAt: u.connectedAt || Date.now(),
+              connectionType: 'http_relay',
+            });
+          }
+        });
+      }
+      broadcastToAll({
+        type: 'presence:update',
+        payload: { onlineUsers: getPublicOnlineUsers() },
+      }, false);
+    }
+    return;
+  }
+
+  // Remote presence updates
+  if (type === 'presence:heartbeat' || type === 'presence:join' || type === 'presence:activity') {
+    const user = payload?.user || payload;
+    if (user && user.email) {
+      const emailKey = user.email.toLowerCase().trim();
+      activeUserRegistry.set(emailKey, {
+        user_id: user.user_id || user.id || user.email,
+        name: user.name || 'Investigator',
+        email: user.email,
+        role: user.role || 'Investigator',
+        avatar: user.avatar || '🌲',
+        activeBoardId: payload.boardId || payload.activeBoardId || 'episode-1-pilot',
+        isWatching: !!payload.isWatching,
+        lastSeen: Date.now(),
+        connectedAt: Date.now(),
+        connectionType: 'http_relay',
+      });
+      broadcastToAll({
+        type: 'presence:update',
+        payload: { onlineUsers: getPublicOnlineUsers() },
+      }, false);
+    }
+    return;
+  }
+
+  // Process board synchronization mutations
+  switch (type) {
+    case 'card:move': {
+      const { id, x, y } = payload || {};
+      const card = db.cards.find((c) => c.id === id);
+      if (card) {
+        card.x = x;
+        card.y = y;
+        card.updated_at = new Date().toISOString();
+        scheduleSaveDatabase();
+      }
+      break;
+    }
+    case 'card:upsert': {
+      const { card } = payload || {};
+      if (card) {
+        const idx = db.cards.findIndex((c) => c.id === card.id);
+        if (idx >= 0) db.cards[idx] = card;
+        else db.cards.push(card);
+        scheduleSaveDatabase();
+      }
+      break;
+    }
+    case 'card:delete': {
+      const { id } = payload || {};
+      db.cards = db.cards.filter((c) => c.id !== id);
+      db.strings = db.strings.filter((s) => s.source_id !== id && s.target_id !== id);
+      scheduleSaveDatabase();
+      break;
+    }
+    case 'string:upsert': {
+      const { string } = payload || {};
+      if (string) {
+        const idx = db.strings.findIndex((s) => s.id === string.id);
+        if (idx >= 0) db.strings[idx] = string;
+        else db.strings.push(string);
+        scheduleSaveDatabase();
+      }
+      break;
+    }
+    case 'string:delete': {
+      const { id } = payload || {};
+      db.strings = db.strings.filter((s) => s.id !== id);
+      scheduleSaveDatabase();
+      break;
+    }
+    case 'sticky:move': {
+      const { id, x, y } = payload || {};
+      const sticky = db.stickies.find((s) => s.id === id);
+      if (sticky) {
+        sticky.x = x;
+        sticky.y = y;
+        scheduleSaveDatabase();
+      }
+      break;
+    }
+    case 'sticky:upsert': {
+      const { sticky } = payload || {};
+      if (sticky) {
+        const idx = db.stickies.findIndex((s) => s.id === sticky.id);
+        if (idx >= 0) db.stickies[idx] = sticky;
+        else db.stickies.push(sticky);
+        scheduleSaveDatabase();
+      }
+      break;
+    }
+    case 'sticky:delete': {
+      const { id } = payload || {};
+      db.stickies = db.stickies.filter((s) => s.id !== id);
+      scheduleSaveDatabase();
+      break;
+    }
+    case 'board:create': {
+      const { board } = payload || {};
+      if (board && !db.boards.some((b) => b.id === board.id)) {
+        db.boards.push(board);
+        scheduleSaveDatabase();
+      }
+      break;
+    }
+    case 'watch:playback': {
+      db.screeningState = {
+        ...db.screeningState,
+        ...payload,
+        updatedAt: Date.now(),
+      };
+      break;
+    }
+    case 'watch:chat': {
+      const { boardId: bId, message } = payload || {};
+      if (bId && message) {
+        if (!db.chat) db.chat = {};
+        if (!db.chat[bId]) db.chat[bId] = [];
+        db.chat[bId].push(message);
+        scheduleSaveDatabase();
+      }
+      break;
+    }
+  }
+
+  recordSyncEvent(type, payload, msg.originSenderId);
+
+  // Broadcast to all local WebSocket clients connected to this container
+  broadcastToAll({
+    type,
+    payload,
+  }, false);
+}
+
+initServerMesh();
+
 // WebSocket Server
 const wss = new WebSocketServer({ server, path: '/ws' });
 
@@ -341,13 +595,16 @@ function getPublicOnlineUsers() {
   }));
 }
 
-function broadcastToAll(msg: any) {
+function broadcastToAll(msg: any, publishMesh: boolean = true) {
   const raw = JSON.stringify(msg);
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(raw);
     }
   });
+  if (publishMesh && msg?.type && !msg.type.startsWith('server:')) {
+    publishServerMesh(msg.type, msg.payload);
+  }
 }
 
 function broadcastToOthers(senderWs: WebSocket, msg: any) {
@@ -357,6 +614,9 @@ function broadcastToOthers(senderWs: WebSocket, msg: any) {
       client.send(raw);
     }
   });
+  if (msg?.type && !msg.type.startsWith('server:')) {
+    publishServerMesh(msg.type, msg.payload, connectedUsers.get(senderWs)?.id);
+  }
 }
 
 wss.on('connection', (ws: WebSocket) => {
@@ -666,11 +926,13 @@ app.post('/api/presence/heartbeat', (req, res) => {
 
   const onlineUsers = getPublicOnlineUsers();
 
+  publishServerMesh('presence:heartbeat', { user, boardId, isWatching });
+
   // Also broadcast presence to any open WebSocket connections
   broadcastToAll({
     type: 'presence:update',
     payload: { onlineUsers },
-  });
+  }, false);
 
   res.json({
     ok: true,

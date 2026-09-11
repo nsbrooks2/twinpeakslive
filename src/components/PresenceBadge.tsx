@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PresenceUser } from '../types';
-import { Users, Server, Shield, Radio, CheckCircle2, Video, X } from 'lucide-react';
+import { Users, Server, Shield, Radio, CheckCircle2, Video, X, PhoneCall, Copy, Check, Cloud, ExternalLink, AlertTriangle } from 'lucide-react';
+import { p2pSync } from '../lib/p2pSync';
+import { cloudRelay } from '../lib/cloudRelay';
 
 interface PresenceProps {
   currentUser: { email: string; name: string; role?: string };
@@ -16,14 +18,48 @@ export const PresenceBadge: React.FC<PresenceProps> = ({
   isServerConnected = true,
 }) => {
   const [isRosterOpen, setIsRosterOpen] = useState(false);
+  const [isP2PActive, setIsP2PActive] = useState(p2pSync.isConnectedToPartner);
+  const [isCloudRelayActive, setIsCloudRelayActive] = useState(cloudRelay.getConnectedStatus());
+  const [copiedLink, setCopiedLink] = useState(false);
 
-  // Filter other users on the server
+  useEffect(() => {
+    const unsubP2P = p2pSync.onConnectionStateChange((connected) => {
+      setIsP2PActive(connected);
+    });
+    const unsubRelay = cloudRelay.onConnectionChange((connected) => {
+      setIsCloudRelayActive(connected);
+    });
+    return () => {
+      unsubP2P();
+      unsubRelay();
+    };
+  }, []);
+
+  const isDevUrl = typeof window !== 'undefined' && window.location.hostname.includes('ais-dev-');
+
+  // Filter other users on the server or cloud relay
   const otherUsers = presenceUsers.filter(
-    (u) => u.email !== currentUser.email && u.name !== currentUser.name
+    (u) => u.email?.toLowerCase().trim() !== currentUser.email?.toLowerCase().trim() &&
+           u.name?.toLowerCase().trim() !== currentUser.name?.toLowerCase().trim()
   );
 
-  const isPartnerOnline = otherUsers.length > 0;
+  const isPartnerOnline = otherUsers.length > 0 || isP2PActive;
   const partnerName = otherUsers[0]?.name || (currentUser.name.includes('Dale') ? 'Girlfriend' : 'Agent Dale Cooper');
+
+  const getSharedUrl = () => {
+    const origin = window.location.origin.replace('ais-dev-', 'ais-pre-');
+    return `${origin}?room=${encodeURIComponent(cloudRelay.roomCode)}`;
+  };
+
+  const copyShareLink = () => {
+    navigator.clipboard.writeText(getSharedUrl());
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  const openSharedServerTab = () => {
+    window.open(getSharedUrl(), '_blank');
+  };
 
   return (
     <>
@@ -179,23 +215,83 @@ export const PresenceBadge: React.FC<PresenceProps> = ({
                 </div>
               </div>
 
+              {/* Dev Server Mismatch Warning & 1-Click Join */}
+              {isDevUrl && (
+                <div className="bg-[#24130a] border-2 border-amber-600/70 rounded-xl p-3 space-y-2 text-[11px] font-typewriter">
+                  <div className="flex items-center gap-1.5 text-amber-300 font-bold">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                    <span>Cross-Server Notice (AI Studio Dev):</span>
+                  </div>
+                  <p className="text-[#d8c3b0] leading-relaxed text-[11px]">
+                    You are in the AI Studio editor container (<code className="text-amber-200 font-mono">ais-dev</code>). The public share link uses <code className="text-amber-200 font-mono">ais-pre</code>. To guarantee you and your partner are on the identical server without container isolation:
+                  </p>
+                  <button
+                    onClick={openSharedServerTab}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 bg-gradient-to-r from-emerald-800 to-emerald-700 hover:from-emerald-700 hover:to-emerald-600 text-white rounded-lg text-xs font-bold uppercase transition-all shadow-md cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Open On Shared Public Server (ais-pre)</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Universal Cloud Relay Status */}
+              <div className="bg-[#120906] border border-[#3e2216] rounded-xl p-3 space-y-2 text-[11px] font-typewriter">
+                <div className="flex items-center justify-between">
+                  <span className="text-[#a08774] flex items-center gap-1.5">
+                    <Cloud className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Universal Cloud Relay:</span>
+                  </span>
+                  <span className={`font-bold ${isCloudRelayActive ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {isCloudRelayActive ? '🟢 Connected (Zero-Lag)' : '🟡 Connecting...'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[#8f745f]">
+                  <span>Channel Frequency:</span>
+                  <span className="font-mono text-[#f5ebd4]">{cloudRelay.roomCode}</span>
+                </div>
+                <div className="pt-1 flex items-center justify-between">
+                  <span className="text-[#8f745f]">Partner Invite:</span>
+                  <button
+                    onClick={copyShareLink}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-[#83161c] hover:bg-[#991b1b] text-white rounded text-[10px] font-bold uppercase transition-all cursor-pointer"
+                  >
+                    {copiedLink ? <Check className="w-3 h-3 text-emerald-300" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedLink ? 'Copied Link!' : 'Copy Partner URL'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Realtime P2P Direct Mesh Status */}
+              <div className="bg-[#120906] border border-[#3e2216] rounded-xl p-3 space-y-2 text-[11px] font-typewriter">
+                <div className="flex items-center justify-between">
+                  <span className="text-[#a08774] flex items-center gap-1.5">
+                    <Radio className="w-3.5 h-3.5 text-[#e5c158]" />
+                    <span>Direct WebRTC P2P:</span>
+                  </span>
+                  <span className={`font-bold ${isP2PActive ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {isP2PActive ? '🟢 Connected to Partner' : '📻 Listening on Channel'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[#8f745f]">
+                  <span>WebRTC Relay:</span>
+                  <span className="text-emerald-400 font-bold">OpenRelay TURN Active</span>
+                </div>
+              </div>
+
               {/* Server System Stats */}
               <div className="bg-[#120906] border border-[#3e2216] rounded-xl p-3 space-y-1.5 text-[11px] font-typewriter text-[#a08774]">
                 <div className="flex justify-between">
-                  <span>Server Port:</span>
-                  <span className="text-[#f5ebd4]">3000 (Express & WebSocket)</span>
+                  <span>Server Infrastructure:</span>
+                  <span className="text-[#f5ebd4]">Express, MQTT Mesh, WebRTC</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Case Board Sync:</span>
-                  <span className="text-emerald-400 font-bold">Real-time Bi-directional</span>
+                  <span>Geographic Range:</span>
+                  <span className="text-emerald-400 font-bold">Michigan ⇄ Alabama</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Disk Persistence:</span>
-                  <span className="text-emerald-400 font-bold">data/db.json (Saved on close)</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Screening Room Sync:</span>
-                  <span className="text-emerald-400 font-bold">Synchronized Playback</span>
+                  <span>Cross-Server Sync:</span>
+                  <span className="text-emerald-400 font-bold">Active Bi-Directional</span>
                 </div>
               </div>
 

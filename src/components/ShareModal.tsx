@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { Share2, Copy, Check, ExternalLink, Globe, Shield, Users, Sparkles, X, Heart } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Share2, Copy, Check, ExternalLink, Globe, Shield, Users, Sparkles, X, Heart, Radio, Smartphone, QrCode } from 'lucide-react';
+import QRCode from 'qrcode';
+import { p2pSync } from '../lib/p2pSync';
 
 interface ShareModalProps {
   isOpen: boolean;
@@ -13,16 +15,42 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   sharedUrl,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [roomCode, setRoomCode] = useState(p2pSync.roomCode);
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
+
+  useEffect(() => {
+    setRoomCode(p2pSync.roomCode);
+  }, [isOpen]);
+
+  // Use the canonical public deployment URL or public origin (NEVER ais-dev-)
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  let publicBase = 'https://ais-pre-i7aluykvrg324tovfisuwa-330207957035.us-east1.run.app';
+  if (currentOrigin && !currentOrigin.includes('localhost')) {
+    if (currentOrigin.includes('ais-dev-')) {
+      publicBase = currentOrigin.replace('ais-dev-', 'ais-pre-');
+    } else {
+      publicBase = currentOrigin;
+    }
+  }
+
+  const finalShareUrl = sharedUrl || `${publicBase}/?room=${encodeURIComponent(roomCode)}`;
+
+  useEffect(() => {
+    if (isOpen && finalShareUrl) {
+      QRCode.toDataURL(finalShareUrl, {
+        margin: 1,
+        width: 140,
+        color: {
+          dark: '#190f0b',
+          light: '#f5ebd4',
+        },
+      })
+        .then((url) => setQrCodeDataUrl(url))
+        .catch((err) => console.warn('QR Code generation failed:', err));
+    }
+  }, [isOpen, finalShareUrl]);
 
   if (!isOpen) return null;
-
-  // Use the canonical shared deployment URL or current browser URL
-  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-  const finalShareUrl =
-    sharedUrl ||
-    (currentOrigin && !currentOrigin.includes('localhost')
-      ? window.location.href
-      : 'https://ais-pre-i7aluykvrg324tovfisuwa-330207957035.us-east1.run.app');
 
   const handleCopy = async () => {
     try {
@@ -32,6 +60,12 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     } catch {
       // fallback
     }
+  };
+
+  const handleRoomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
+    setRoomCode(val);
+    p2pSync.setRoomCode(val);
   };
 
   return (
@@ -67,8 +101,9 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                 <Globe className="w-3.5 h-3.5" />
                 <span>Public Shareable URL</span>
               </span>
-              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-700/60">
-                Ready to Access
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-700/60 flex items-center gap-1">
+                <Radio className="w-3 h-3 animate-pulse text-emerald-400" />
+                Direct P2P Link Active
               </span>
             </div>
 
@@ -93,10 +128,50 @@ export const ShareModal: React.FC<ShareModalProps> = ({
               </button>
             </div>
 
+            {/* Room Frequency setting */}
+            <div className="pt-2 border-t border-[#3e2417] flex items-center justify-between gap-2">
+              <span className="font-typewriter text-[11px] text-[#e5c158] flex items-center gap-1">
+                <Radio className="w-3 h-3 text-[#e5c158]" />
+                Dispatch Frequency / Room:
+              </span>
+              <input
+                type="text"
+                value={roomCode}
+                onChange={handleRoomChange}
+                placeholder="twinpeaks-sheriff-case"
+                className="bg-[#080403] border border-[#5a3928] rounded px-2 py-1 text-[11px] font-mono text-[#f5ebd4] w-48 text-right focus:outline-none focus:border-[#e5c158]"
+              />
+            </div>
+
             <p className="font-typewriter text-[11px] text-[#9c8472] leading-relaxed">
-              Anyone with this link can open the whiteboard from any phone, laptop, or browser.
+              Anyone with this link automatically connects directly to your live board via WebRTC, syncing character clues, red yarn strings, and live video calls between Michigan and Alabama.
             </p>
           </div>
+
+          {/* QR Code Quick Connect for Phone / Tablet */}
+          {qrCodeDataUrl && (
+            <div className="bg-[#1a110c] border border-[#523423] rounded-xl p-3.5 flex items-center gap-4">
+              <div className="bg-[#f5ebd4] p-1.5 rounded-lg border-2 border-[#e5c158] shadow-md shrink-0">
+                <img
+                  src={qrCodeDataUrl}
+                  alt="Scan to join on mobile"
+                  className="w-24 h-24 block"
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="font-typewriter text-xs font-bold text-[#e5c158] flex items-center gap-1.5 uppercase">
+                  <Smartphone className="w-4 h-4 text-emerald-400" />
+                  <span>Connect Phone or Tablet</span>
+                </div>
+                <p className="font-typewriter text-[11px] text-[#c9b4a1] leading-relaxed">
+                  Scan this QR code with your iPhone, iPad, or Android camera to instantly open this exact board session on your mobile device.
+                </p>
+                <div className="text-[10px] font-mono text-emerald-400/90 pt-0.5">
+                  ✓ Full touch drag, pinch zoom & cross-device sync active
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Quick instructions for girlfriend access */}
           <div className="space-y-3 font-typewriter text-xs text-[#d1b194]">

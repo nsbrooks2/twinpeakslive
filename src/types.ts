@@ -49,6 +49,10 @@ export interface PresenceUser {
   name: string;
   last_seen: string;
   board_id?: string;
+  role?: string;
+  avatar?: string;
+  isWatching?: boolean;
+  activeBoardId?: string;
 }
 
 export interface WebRTCSignalPayload {

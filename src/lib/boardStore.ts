@@ -14,6 +14,15 @@ import {
 } from '../seedData';
 import { getSupabase } from './supabase';
 
+export function getApiUrl(path: string): string {
+  if (typeof window === 'undefined') return path;
+  const custom = localStorage.getItem('tp_custom_server_url');
+  if (custom && custom.trim()) {
+    return `${custom.trim().replace(/\/+$/, '')}${path}`;
+  }
+  return path;
+}
+
 const STORAGE_KEYS = {
   BOARDS: 'tp_caseboard_boards_v2',
   CARDS: 'tp_caseboard_cards_v2',
@@ -43,7 +52,7 @@ export class BoardRepository {
   static async loadBoards(): Promise<EpisodeBoard[]> {
     // 1. Try Server API (authoritative disk persistence)
     try {
-      const res = await fetch('/api/boards');
+      const res = await fetch(getApiUrl('/api/boards'));
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
@@ -109,7 +118,7 @@ export class BoardRepository {
   }> {
     // 1. Try Server API
     try {
-      const res = await fetch(`/api/boards/${boardId}`);
+      const res = await fetch(getApiUrl(`/api/boards/${boardId}`));
       if (res.ok) {
         const data = await res.json();
         if (data && (Array.isArray(data.cards) || Array.isArray(data.strings) || Array.isArray(data.stickies))) {
@@ -198,7 +207,7 @@ export class BoardRepository {
 
     // Send to Server
     try {
-      await fetch('/api/boards', {
+      await fetch(getApiUrl('/api/boards'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ board: newBoard, duplicateFromBoardId: params.duplicateFromBoardId }),
@@ -235,7 +244,7 @@ export class BoardRepository {
 
     // 1. Call server API
     try {
-      await fetch(`/api/boards/${targetBoardId}/import`, {
+      await fetch(getApiUrl(`/api/boards/${targetBoardId}/import`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sourceBoardId, mode, items }),
@@ -356,7 +365,7 @@ export class BoardRepository {
 
     // Save to Server
     try {
-      fetch(`/api/boards/${card.board_id}/cards`, {
+      fetch(getApiUrl(`/api/boards/${card.board_id}/cards`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(card),
@@ -388,7 +397,7 @@ export class BoardRepository {
 
     // Send to Server
     try {
-      fetch(`/api/boards/${boardId}/cards/${cardId}`, {
+      fetch(getApiUrl(`/api/boards/${boardId}/cards/${cardId}`), {
         method: 'DELETE',
       }).catch(() => {});
     } catch {
@@ -422,7 +431,7 @@ export class BoardRepository {
 
     // Send to Server
     try {
-      fetch(`/api/boards/${str.board_id}/strings`, {
+      fetch(getApiUrl(`/api/boards/${str.board_id}/strings`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(str),
@@ -451,7 +460,7 @@ export class BoardRepository {
 
     // Send to Server
     try {
-      fetch(`/api/boards/${targetBoardId}/strings/${stringId}`, {
+      fetch(getApiUrl(`/api/boards/${targetBoardId}/strings/${stringId}`), {
         method: 'DELETE',
       }).catch(() => {});
     } catch {
@@ -481,7 +490,7 @@ export class BoardRepository {
 
     // Send to Server
     try {
-      fetch(`/api/boards/${note.board_id}/stickies`, {
+      fetch(getApiUrl(`/api/boards/${note.board_id}/stickies`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(note),
@@ -510,7 +519,7 @@ export class BoardRepository {
 
     // Send to Server
     try {
-      fetch(`/api/boards/${targetBoardId}/stickies/${noteId}`, {
+      fetch(getApiUrl(`/api/boards/${targetBoardId}/stickies/${noteId}`), {
         method: 'DELETE',
       }).catch(() => {});
     } catch {
@@ -571,7 +580,7 @@ export class UserAccountStore {
   // Load all accounts from server and merge with local
   static async loadAllAccounts(): Promise<UserAccount[]> {
     try {
-      const res = await fetch('/api/users');
+      const res = await fetch(getApiUrl('/api/users'));
       if (res.ok) {
         const serverUsers = await res.json();
         if (Array.isArray(serverUsers) && serverUsers.length > 0) {
@@ -596,7 +605,7 @@ export class UserAccountStore {
     favorite_quote?: string;
   }): Promise<UserAccount> {
     try {
-      const res = await fetch('/api/users/register', {
+      const res = await fetch(getApiUrl('/api/users/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(accountData),
@@ -634,7 +643,7 @@ export class UserAccountStore {
   // Login with existing account
   static async loginAccount(email: string, password?: string): Promise<UserAccount> {
     try {
-      const res = await fetch('/api/users/login', {
+      const res = await fetch(getApiUrl('/api/users/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -671,7 +680,7 @@ export class UserAccountStore {
   // Update profile
   static async updateProfile(email: string, updates: Partial<UserAccount>): Promise<UserAccount> {
     try {
-      const res = await fetch(`/api/users/${encodeURIComponent(email)}`, {
+      const res = await fetch(getApiUrl(`/api/users/${encodeURIComponent(email)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),

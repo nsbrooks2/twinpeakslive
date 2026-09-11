@@ -228,6 +228,17 @@ loadDatabase();
 // Middleware
 app.use(express.json());
 
+// CORS headers for cross-origin multi-user & mobile access
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Track online users
 interface ConnectedUser {
   ws: WebSocket;
@@ -235,6 +246,7 @@ interface ConnectedUser {
   name: string;
   email: string;
   role?: string;
+  avatar?: string;
   activeBoardId: string;
   isWatching: boolean;
   connectedAt: number;
@@ -243,27 +255,90 @@ interface ConnectedUser {
 
 const connectedUsers = new Map<WebSocket, ConnectedUser>();
 
+// Persistent presence registry across WebSockets and HTTP polling
+interface RegisteredUserSession {
+  user_id: string;
+  name: string;
+  email: string;
+  role: string;
+  avatar?: string;
+  activeBoardId: string;
+  isWatching: boolean;
+  lastSeen: number;
+  connectedAt: number;
+  connectionType: 'websocket' | 'http_relay';
+}
+
+const activeUserRegistry = new Map<string, RegisteredUserSession>();
+
+// Sync Event Buffer for HTTP Polling clients & cross-state synchronization
+interface SyncEvent {
+  id: string;
+  type: string;
+  boardId?: string;
+  payload: any;
+  timestamp: number;
+  senderId?: string;
+}
+
+const recentSyncEvents: SyncEvent[] = [];
+
+function recordSyncEvent(type: string, payload: any, senderId?: string, boardId?: string): SyncEvent {
+  const event: SyncEvent = {
+    id: `ev-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    type,
+    payload,
+    timestamp: Date.now(),
+    senderId,
+    boardId: boardId || payload?.boardId,
+  };
+  recentSyncEvents.push(event);
+  if (recentSyncEvents.length > 250) {
+    recentSyncEvents.shift();
+  }
+  return event;
+}
+
 // WebSocket Server
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 function getPublicOnlineUsers() {
-  const users: any[] = [];
-  const seenEmails = new Set<string>();
-  connectedUsers.forEach((u) => {
-    if (!seenEmails.has(u.email)) {
-      seenEmails.add(u.email);
-      users.push({
-        user_id: u.id,
-        name: u.name,
-        email: u.email,
-        role: u.role || 'Investigator',
-        activeBoardId: u.activeBoardId,
-        isWatching: u.isWatching,
-        connectedAt: u.connectedAt,
-      });
+  const now = Date.now();
+  // Clean up stale users (> 30s without ping/heartbeat)
+  for (const [key, user] of activeUserRegistry.entries()) {
+    if (now - user.lastSeen > 30000) {
+      activeUserRegistry.delete(key);
     }
+  }
+
+  // Synchronize active WebSocket connections into the registry
+  connectedUsers.forEach((u) => {
+    activeUserRegistry.set(u.email.toLowerCase().trim(), {
+      user_id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role || 'Investigator',
+      avatar: u.avatar || '🌲',
+      activeBoardId: u.activeBoardId || 'episode-1-pilot',
+      isWatching: u.isWatching,
+      lastSeen: u.lastPing,
+      connectedAt: u.connectedAt,
+      connectionType: 'websocket',
+    });
   });
-  return users;
+
+  return Array.from(activeUserRegistry.values()).map((u) => ({
+    user_id: u.user_id,
+    name: u.name,
+    email: u.email,
+    role: u.role || 'Investigator',
+    avatar: u.avatar || '🌲',
+    activeBoardId: u.activeBoardId || 'episode-1-pilot',
+    isWatching: u.isWatching,
+    connectedAt: u.connectedAt,
+    connectionType: u.connectionType,
+    lastSeen: u.lastSeen,
+  }));
 }
 
 function broadcastToAll(msg: any) {
@@ -348,6 +423,7 @@ wss.on('connection', (ws: WebSocket) => {
             card.updated_at = new Date().toISOString();
             scheduleSaveDatabase();
           }
+          recordSyncEvent('card:move', msg.payload, connectedUsers.get(ws)?.id, boardId);
           broadcastToOthers(ws, msg);
           break;
         }
@@ -363,6 +439,7 @@ wss.on('connection', (ws: WebSocket) => {
             }
             scheduleSaveDatabase();
           }
+          recordSyncEvent('card:upsert', msg.payload, connectedUsers.get(ws)?.id, card?.board_id);
           broadcastToOthers(ws, msg);
           break;
         }
@@ -372,6 +449,7 @@ wss.on('connection', (ws: WebSocket) => {
           db.cards = db.cards.filter((c) => c.id !== id);
           db.strings = db.strings.filter((s) => s.source_id !== id && s.target_id !== id);
           scheduleSaveDatabase();
+          recordSyncEvent('card:delete', msg.payload, connectedUsers.get(ws)?.id);
           broadcastToOthers(ws, msg);
           break;
         }
@@ -387,6 +465,7 @@ wss.on('connection', (ws: WebSocket) => {
             }
             scheduleSaveDatabase();
           }
+          recordSyncEvent('string:upsert', msg.payload, connectedUsers.get(ws)?.id, string?.board_id);
           broadcastToOthers(ws, msg);
           break;
         }
@@ -395,6 +474,7 @@ wss.on('connection', (ws: WebSocket) => {
           const { id } = msg.payload;
           db.strings = db.strings.filter((s) => s.id !== id);
           scheduleSaveDatabase();
+          recordSyncEvent('string:delete', msg.payload, connectedUsers.get(ws)?.id);
           broadcastToOthers(ws, msg);
           break;
         }
@@ -407,6 +487,7 @@ wss.on('connection', (ws: WebSocket) => {
             sticky.y = y;
             scheduleSaveDatabase();
           }
+          recordSyncEvent('sticky:move', msg.payload, connectedUsers.get(ws)?.id);
           broadcastToOthers(ws, msg);
           break;
         }
@@ -422,6 +503,7 @@ wss.on('connection', (ws: WebSocket) => {
             }
             scheduleSaveDatabase();
           }
+          recordSyncEvent('sticky:upsert', msg.payload, connectedUsers.get(ws)?.id, sticky?.board_id);
           broadcastToOthers(ws, msg);
           break;
         }
@@ -430,6 +512,7 @@ wss.on('connection', (ws: WebSocket) => {
           const { id } = msg.payload;
           db.stickies = db.stickies.filter((s) => s.id !== id);
           scheduleSaveDatabase();
+          recordSyncEvent('sticky:delete', msg.payload, connectedUsers.get(ws)?.id);
           broadcastToOthers(ws, msg);
           break;
         }
@@ -442,6 +525,7 @@ wss.on('connection', (ws: WebSocket) => {
               scheduleSaveDatabase();
             }
           }
+          recordSyncEvent('board:create', msg.payload, connectedUsers.get(ws)?.id, board?.id);
           broadcastToOthers(ws, msg);
           break;
         }
@@ -458,6 +542,7 @@ wss.on('connection', (ws: WebSocket) => {
             updatedAt: Date.now(),
           };
           scheduleSaveDatabase();
+          recordSyncEvent('watch:playback', msg.payload, connectedUsers.get(ws)?.id);
           // Broadcast to everyone (including sender confirmation if needed)
           broadcastToAll({
             type: 'watch:playback',
@@ -473,6 +558,7 @@ wss.on('connection', (ws: WebSocket) => {
           }
           db.chat[boardId].push(message);
           scheduleSaveDatabase();
+          recordSyncEvent('watch:chat', msg.payload, connectedUsers.get(ws)?.id, boardId);
           broadcastToAll({
             type: 'watch:chat',
             payload: { boardId, message },
@@ -481,6 +567,7 @@ wss.on('connection', (ws: WebSocket) => {
         }
 
         case 'watch:countdown': {
+          recordSyncEvent('watch:countdown', msg.payload, connectedUsers.get(ws)?.id);
           // Synchronized 3-2-1 play countdown
           broadcastToAll({
             type: 'watch:countdown',
@@ -490,6 +577,7 @@ wss.on('connection', (ws: WebSocket) => {
         }
 
         case 'watch:ready': {
+          recordSyncEvent('watch:ready', msg.payload, connectedUsers.get(ws)?.id);
           // Ready check signal between detectives
           broadcastToAll({
             type: 'watch:ready',
@@ -500,6 +588,7 @@ wss.on('connection', (ws: WebSocket) => {
 
         // WebRTC Signaling Relay
         case 'webrtc:signal': {
+          recordSyncEvent('webrtc:signal', msg.payload, connectedUsers.get(ws)?.id);
           broadcastToOthers(ws, {
             type: 'webrtc:signal',
             payload: msg.payload,
@@ -513,6 +602,11 @@ wss.on('connection', (ws: WebSocket) => {
   });
 
   ws.on('close', () => {
+    const u = connectedUsers.get(ws);
+    if (u) {
+      const emailKey = u.email.toLowerCase().trim();
+      activeUserRegistry.delete(emailKey);
+    }
     connectedUsers.delete(ws);
     broadcastToAll({
       type: 'presence:update',
@@ -531,6 +625,217 @@ setInterval(() => {
 }, 10000);
 
 // --- REST API ENDPOINTS ---
+
+// Server Diagnostics Endpoint
+app.get('/api/server-info', (req, res) => {
+  const onlineUsers = getPublicOnlineUsers();
+  res.json({
+    status: 'ok',
+    serverTime: Date.now(),
+    isVercel: IS_VERCEL,
+    onlineCount: onlineUsers.length,
+    onlineUsers,
+    screeningState: db.screeningState,
+    boardCount: db.boards.length,
+  });
+});
+
+// Real-Time Presence HTTP Heartbeat (For Remote Multi-User & Mobile / Cellular Connections)
+app.post('/api/presence/heartbeat', (req, res) => {
+  const { user, boardId, isWatching } = req.body || {};
+  if (!user || !user.email) {
+    return res.status(400).json({ error: 'User details required' });
+  }
+
+  const emailKey = (user.email || '').toLowerCase().trim();
+  const existing = activeUserRegistry.get(emailKey);
+  const now = Date.now();
+
+  activeUserRegistry.set(emailKey, {
+    user_id: user.user_id || user.id || user.email,
+    name: user.name || 'Investigator',
+    email: user.email,
+    role: user.role || 'Investigator',
+    avatar: user.avatar || '🌲',
+    activeBoardId: boardId || existing?.activeBoardId || 'episode-1-pilot',
+    isWatching: isWatching !== undefined ? !!isWatching : !!existing?.isWatching,
+    lastSeen: now,
+    connectedAt: existing?.connectedAt || now,
+    connectionType: 'http_relay',
+  });
+
+  const onlineUsers = getPublicOnlineUsers();
+
+  // Also broadcast presence to any open WebSocket connections
+  broadcastToAll({
+    type: 'presence:update',
+    payload: { onlineUsers },
+  });
+
+  res.json({
+    ok: true,
+    serverTime: now,
+    onlineUsers,
+    screeningState: db.screeningState,
+  });
+});
+
+// Get Online Presence Roster
+app.get('/api/presence', (req, res) => {
+  res.json({
+    onlineUsers: getPublicOnlineUsers(),
+    serverTime: Date.now(),
+  });
+});
+
+// HTTP Sync Event Broadcast (Guarantees synchronization when WebSocket is unavailable or on mobile)
+app.post('/api/sync/broadcast', (req, res) => {
+  const { type, payload, senderId, boardId } = req.body || {};
+  if (!type) {
+    return res.status(400).json({ error: 'Event type required' });
+  }
+
+  // Process data in database schema
+  switch (type) {
+    case 'card:move': {
+      const { id, x, y } = payload || {};
+      const card = db.cards.find((c) => c.id === id);
+      if (card) {
+        card.x = x;
+        card.y = y;
+        card.updated_at = new Date().toISOString();
+        scheduleSaveDatabase();
+      }
+      break;
+    }
+    case 'card:upsert': {
+      const { card } = payload || {};
+      if (card) {
+        const idx = db.cards.findIndex((c) => c.id === card.id);
+        if (idx >= 0) {
+          db.cards[idx] = card;
+        } else {
+          db.cards.push(card);
+        }
+        scheduleSaveDatabase();
+      }
+      break;
+    }
+    case 'card:delete': {
+      const { id } = payload || {};
+      db.cards = db.cards.filter((c) => c.id !== id);
+      db.strings = db.strings.filter((s) => s.source_id !== id && s.target_id !== id);
+      scheduleSaveDatabase();
+      break;
+    }
+    case 'string:upsert': {
+      const { string } = payload || {};
+      if (string) {
+        const idx = db.strings.findIndex((s) => s.id === string.id);
+        if (idx >= 0) {
+          db.strings[idx] = string;
+        } else {
+          db.strings.push(string);
+        }
+        scheduleSaveDatabase();
+      }
+      break;
+    }
+    case 'string:delete': {
+      const { id } = payload || {};
+      db.strings = db.strings.filter((s) => s.id !== id);
+      scheduleSaveDatabase();
+      break;
+    }
+    case 'sticky:move': {
+      const { id, x, y } = payload || {};
+      const sticky = db.stickies.find((s) => s.id === id);
+      if (sticky) {
+        sticky.x = x;
+        sticky.y = y;
+        scheduleSaveDatabase();
+      }
+      break;
+    }
+    case 'sticky:upsert': {
+      const { sticky } = payload || {};
+      if (sticky) {
+        const idx = db.stickies.findIndex((s) => s.id === sticky.id);
+        if (idx >= 0) {
+          db.stickies[idx] = sticky;
+        } else {
+          db.stickies.push(sticky);
+        }
+        scheduleSaveDatabase();
+      }
+      break;
+    }
+    case 'sticky:delete': {
+      const { id } = payload || {};
+      db.stickies = db.stickies.filter((s) => s.id !== id);
+      scheduleSaveDatabase();
+      break;
+    }
+    case 'board:create': {
+      const { board } = payload || {};
+      if (board && !db.boards.some((b) => b.id === board.id)) {
+        db.boards.push(board);
+        scheduleSaveDatabase();
+      }
+      break;
+    }
+    case 'watch:playback': {
+      db.screeningState = {
+        ...db.screeningState,
+        ...payload,
+        updatedAt: Date.now(),
+      };
+      break;
+    }
+    case 'watch:chat': {
+      const { boardId: bId, message } = payload || {};
+      if (bId && message) {
+        if (!db.chat) db.chat = {};
+        if (!db.chat[bId]) db.chat[bId] = [];
+        db.chat[bId].push(message);
+        scheduleSaveDatabase();
+      }
+      break;
+    }
+  }
+
+  // Record in recent events buffer
+  const event = recordSyncEvent(type, payload, senderId, boardId);
+
+  // Broadcast to all open WebSocket connections
+  broadcastToAll({
+    type,
+    payload,
+  });
+
+  res.json({ ok: true, eventId: event.id, timestamp: event.timestamp });
+});
+
+// HTTP Sync Event Polling (Returns events that occurred since given timestamp)
+app.get('/api/sync/poll', (req, res) => {
+  const since = parseInt(req.query.since as string, 10) || 0;
+  const boardId = (req.query.boardId as string) || '';
+  const senderId = (req.query.senderId as string) || '';
+
+  const events = recentSyncEvents.filter((ev) => {
+    if (ev.timestamp <= since) return false;
+    if (senderId && ev.senderId === senderId) return false;
+    if (boardId && ev.boardId && ev.boardId !== boardId && !ev.type.startsWith('watch:') && ev.type !== 'webrtc:signal') return false;
+    return true;
+  });
+
+  res.json({
+    events,
+    onlineUsers: getPublicOnlineUsers(),
+    screeningState: db.screeningState,
+    serverTime: Date.now(),
+  });
+});
 
 // User Accounts Endpoints
 // List all saved accounts (without passwords)

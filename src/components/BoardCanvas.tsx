@@ -126,6 +126,15 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
   const [pan, setPan] = useState({ x: -200, y: -50 });
   const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+  const pinchStartDistRef = useRef<number | null>(null);
+  const pinchStartScaleRef = useRef<number>(1);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setScale(0.55);
+      setPan({ x: -30, y: -15 });
+    }
+  }, []);
 
   // Supabase Connection Status & Settings Modal
   const [supabaseConnected, setSupabaseConnected] = useState<boolean>(false);
@@ -595,14 +604,106 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
     }
   };
 
+  // Touch Handlers for iPhone and Tablet
+  const handleCanvasTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      // 2 fingers = Pinch to zoom
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      pinchStartDistRef.current = dist;
+      pinchStartScaleRef.current = scale;
+      setIsPanning(false);
+      draggingItemRef.current = null;
+      return;
+    }
+
+    if (e.touches.length === 1) {
+      pinchStartDistRef.current = null;
+      const target = e.target as HTMLElement;
+      if (
+        !draggingItemRef.current &&
+        (target === e.currentTarget ||
+          target.id === 'corkboard-stage' ||
+          target.tagName === 'svg' ||
+          target.classList.contains('bg-corkboard'))
+      ) {
+        setIsPanning(true);
+        panStartRef.current = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY,
+          panX: pan.x,
+          panY: pan.y,
+        };
+      }
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    // 2 finger pinch
+    if (e.touches.length === 2 && pinchStartDistRef.current) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const ratio = dist / pinchStartDistRef.current;
+      const nextScale = Math.min(1.8, Math.max(0.35, pinchStartScaleRef.current * ratio));
+      setScale(nextScale);
+      return;
+    }
+
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+
+      if (isPanning) {
+        const dx = touch.clientX - panStartRef.current.x;
+        const dy = touch.clientY - panStartRef.current.y;
+        setPan({
+          x: panStartRef.current.panX + dx,
+          y: panStartRef.current.panY + dy,
+        });
+        return;
+      }
+
+      if (draggingItemRef.current) {
+        const { id, type, startX, startY, initialX, initialY } = draggingItemRef.current;
+        const dx = (touch.clientX - startX) / scale;
+        const dy = (touch.clientY - startY) / scale;
+        const nextX = Math.max(20, Math.min(CANVAS_WIDTH - 300, initialX + dx));
+        const nextY = Math.max(20, Math.min(CANVAS_HEIGHT - 300, initialY + dy));
+
+        if (type === 'card') {
+          setCards((prev) =>
+            prev.map((c) => (c.id === id ? { ...c, x: nextX, y: nextY } : c))
+          );
+        } else {
+          setStickies((prev) =>
+            prev.map((s) => (s.id === id ? { ...s, x: nextX, y: nextY } : s))
+          );
+        }
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    pinchStartDistRef.current = null;
+    handleMouseUp();
+  };
+
   // Zoom handlers
   const handleZoom = (delta: number) => {
-    setScale((prev) => Math.min(1.8, Math.max(0.4, prev + delta)));
+    setScale((prev) => Math.min(1.8, Math.max(0.35, prev + delta)));
   };
 
   const resetView = () => {
-    setScale(0.85);
-    setPan({ x: -100, y: -40 });
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setScale(0.55);
+      setPan({ x: -30, y: -15 });
+    } else {
+      setScale(0.85);
+      setPan({ x: -100, y: -40 });
+    }
   };
 
   // String connection logic
@@ -816,16 +917,16 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
     >
       <div className="relative w-screen h-screen overflow-hidden bg-[#0c0705] flex flex-col select-none">
       {/* 1. TOP SHERIFF'S STATION NAVBAR */}
-      <header className="relative z-30 h-16 bg-[#160d0a] border-b-2 border-[#4a2e20] px-4 flex items-center justify-between shadow-lg">
+      <header className="relative z-30 min-h-14 sm:h-16 bg-[#160d0a] border-b-2 border-[#4a2e20] px-2.5 sm:px-4 py-1.5 flex items-center justify-between shadow-lg gap-1.5 sm:gap-4 overflow-x-auto no-scrollbar">
         {/* Left: App Title & Episode Selector */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">☕</span>
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <span className="text-lg sm:text-xl">☕</span>
             <div>
-              <h1 className="font-display font-black text-sm sm:text-base text-[#f5ebd4] tracking-widest leading-none">
+              <h1 className="font-display font-black text-xs sm:text-base text-[#f5ebd4] tracking-wider leading-none whitespace-nowrap">
                 DAMN FINE CASE BOARD
               </h1>
-              <span className="font-typewriter text-[9px] text-[#b89f89] tracking-wider uppercase">
+              <span className="hidden md:block font-typewriter text-[9px] text-[#b89f89] tracking-wider uppercase">
                 Twin Peaks Sheriff's Dept • 2-Person Private Board
               </span>
             </div>
@@ -834,24 +935,25 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
           {/* Episode Switcher Dropdown Button */}
           <button
             onClick={() => setIsEpisodeModalOpen(true)}
-            className="flex items-center gap-2 bg-[#25150f] hover:bg-[#382017] border border-[#5a3928] text-[#f5ebd4] px-3 py-1.5 rounded-lg text-xs font-typewriter transition-all shadow cursor-pointer group"
+            className="flex items-center gap-1.5 bg-[#25150f] hover:bg-[#382017] border border-[#5a3928] text-[#f5ebd4] px-2 sm:px-3 py-1.5 rounded-lg text-xs font-typewriter transition-all shadow cursor-pointer group min-h-[38px]"
             title="Switch or create episode investigation boards"
           >
-            <Film className="w-3.5 h-3.5 text-[#e5c158]" />
-            <span className="font-bold max-w-[140px] sm:max-w-[200px] truncate">
+            <Film className="w-3.5 h-3.5 text-[#e5c158] flex-shrink-0" />
+            <span className="font-bold max-w-[80px] sm:max-w-[180px] truncate">
               {activeBoard?.title || 'Episode 1: Pilot'}
             </span>
-            <ChevronDown className="w-3.5 h-3.5 text-[#b89f89] group-hover:translate-y-0.5 transition-transform" />
+            <ChevronDown className="w-3.5 h-3.5 text-[#b89f89] group-hover:translate-y-0.5 transition-transform flex-shrink-0" />
           </button>
 
           {/* Synchronized Watch Party Trigger Button */}
           <button
             onClick={() => setIsWatchPartyOpen(true)}
-            className="flex items-center gap-1.5 bg-gradient-to-r from-[#83161c] to-[#991b1b] hover:from-[#991b1b] hover:to-[#b91c1c] text-[#fdf2f2] px-3.5 py-1.5 rounded-lg text-xs font-typewriter font-bold shadow-[0_0_15px_rgba(185,28,28,0.4)] border border-[#e5c158]/50 transition-all cursor-pointer hover:scale-105"
+            className="flex items-center gap-1 sm:gap-1.5 bg-gradient-to-r from-[#83161c] to-[#991b1b] hover:from-[#991b1b] hover:to-[#b91c1c] text-[#fdf2f2] px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-typewriter font-bold shadow-[0_0_15px_rgba(185,28,28,0.4)] border border-[#e5c158]/50 transition-all cursor-pointer hover:scale-105 min-h-[38px] whitespace-nowrap"
             title={`Watch Episode ${currentEpNumber} together with synchronized play/pause, live chat, and timeline clues`}
           >
-            <Tv className="w-4 h-4 text-[#e5c158] animate-pulse" />
-            <span className="tracking-wide">Watch Ep. {currentEpNumber}</span>
+            <Tv className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#e5c158] animate-pulse flex-shrink-0" />
+            <span className="tracking-wide hidden sm:inline">Watch Ep. {currentEpNumber}</span>
+            <span className="tracking-wide sm:hidden">Ep. {currentEpNumber}</span>
             <span className="bg-black/40 text-[#e5c158] text-[9px] px-1.5 py-0.2 rounded font-mono hidden md:inline">
               SYNC
             </span>
@@ -860,9 +962,9 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
 
         {/* Center: String Connection Notification if active */}
         {stringSourceCardId && (
-          <div className="hidden md:flex items-center gap-2 bg-red-950 border border-red-700 text-red-200 px-3 py-1 rounded-full text-xs font-typewriter animate-pulse">
+          <div className="hidden lg:flex items-center gap-2 bg-red-950 border border-red-700 text-red-200 px-3 py-1 rounded-full text-xs font-typewriter animate-pulse flex-shrink-0">
             <Link2 className="w-3.5 h-3.5 text-red-400" />
-            <span>Click any target card to tie red string from "{activeSourceCard?.name}"</span>
+            <span>Tie string from "{activeSourceCard?.name}"</span>
             <button
               onClick={() => setStringSourceCardId(null)}
               className="ml-2 underline text-white hover:text-red-300 cursor-pointer"
@@ -873,11 +975,11 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
         )}
 
         {/* Right: Cloud Sync Status, Presence Indicator, Video trigger, & Sign out */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0">
           {/* Supabase Realtime Connection Badge & Quick Settings */}
           <button
             onClick={() => setIsConnModalOpen(true)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-typewriter border transition-all cursor-pointer ${
+            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-typewriter border transition-all cursor-pointer ${
               supabaseConnected
                 ? 'bg-emerald-950/60 border-emerald-700/80 text-emerald-300 hover:bg-emerald-900/80'
                 : 'bg-amber-950/40 border-amber-800/60 text-amber-300 hover:bg-amber-900/60'
@@ -888,13 +990,13 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
               <>
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                 <Wifi className="w-3 h-3 text-emerald-400" />
-                <span className="hidden sm:inline">Supabase Synced</span>
+                <span className="hidden lg:inline">Supabase Synced</span>
               </>
             ) : (
               <>
                 <span className="w-2 h-2 rounded-full bg-amber-400" />
                 <WifiOff className="w-3 h-3 text-amber-400" />
-                <span className="hidden sm:inline">Offline / Local</span>
+                <span className="hidden lg:inline">Offline / Local</span>
               </>
             )}
             <Settings className="w-3 h-3 opacity-60 ml-0.5 hover:opacity-100" />
@@ -909,30 +1011,30 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
           {/* Share & Publish Access Link Button */}
           <button
             onClick={() => setIsShareModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#83161c] hover:bg-[#991b1b] border border-[#b91c1c] text-[#fdf2f2] rounded-full text-xs font-typewriter uppercase tracking-wider font-bold shadow-md transition-all hover:scale-105 cursor-pointer"
-            title="Publish and share site link with girlfriend or anyone"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-[#83161c] hover:bg-[#991b1b] border border-[#b91c1c] text-[#fdf2f2] rounded-full text-xs font-typewriter uppercase tracking-wider font-bold shadow-md transition-all hover:scale-105 cursor-pointer min-h-[38px]"
+            title="Publish and share site link with partner in Michigan or Alabama"
           >
             <Share2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Share Link</span>
+            <span className="hidden xs:inline sm:inline">Share</span>
           </button>
 
-          <div className="h-6 w-[1px] bg-[#3e2518]" />
+          <div className="h-6 w-[1px] bg-[#3e2518] hidden xs:block" />
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={() => setIsProfileModalOpen(true)}
-              className="flex items-center gap-2 px-2.5 py-1 bg-[#25150f] hover:bg-[#382017] border border-[#4a2e20] hover:border-[#e5c158] rounded-full transition-all cursor-pointer shadow-sm text-left group"
-              title="Click to manage Officer Account, change name, avatar, rank or switch account"
+              className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 bg-[#25150f] hover:bg-[#382017] border border-[#4a2e20] hover:border-[#e5c158] rounded-full transition-all cursor-pointer shadow-sm text-left group min-h-[38px]"
+              title="Officer Profile and Settings"
             >
               <span className="text-sm select-none">{currentUser.avatar || '🌲'}</span>
-              <span className="hidden sm:inline font-typewriter text-xs text-[#cfb69b] group-hover:text-[#f5ebd4]">
+              <span className="hidden md:inline font-typewriter text-xs text-[#cfb69b] group-hover:text-[#f5ebd4]">
                 <span className="text-[#f5ebd4] font-bold group-hover:text-[#e5c158]">{currentUser.name}</span>
               </span>
               <Settings className="w-3 h-3 text-[#96775d] group-hover:text-[#e5c158] transition-colors" />
             </button>
             <button
               onClick={onSignOut}
-              className="p-1.5 bg-[#25150f] hover:bg-[#3b1d12] border border-[#4a2e20] text-[#cfb69b] hover:text-red-400 rounded transition-colors cursor-pointer"
+              className="p-2 bg-[#25150f] hover:bg-[#3b1d12] border border-[#4a2e20] text-[#cfb69b] hover:text-red-400 rounded-lg transition-colors cursor-pointer min-w-[38px] min-h-[38px] flex items-center justify-center"
               title="Lock station dossier / sign out"
             >
               <LogOut className="w-4 h-4" />
@@ -967,12 +1069,12 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
       )}
 
       {/* 2. SUB-TOOLBAR: Filters, Search, and Whiteboard Actions */}
-      <div className="relative z-20 h-12 bg-[#1b100b] border-b border-[#3e2518] px-4 flex items-center justify-between gap-3 text-xs font-typewriter overflow-x-auto">
+      <div className="relative z-20 min-h-12 bg-[#1b100b] border-b border-[#3e2518] px-3 sm:px-4 py-1.5 flex items-center justify-between gap-2.5 text-xs font-typewriter overflow-x-auto no-scrollbar touch-pan-x">
         {/* Left: Quick Actions */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={openAddCardModal}
-            className="bg-[#83161c] hover:bg-[#991b1b] active:bg-[#6e1217] text-[#fdf2f2] px-3 py-1.5 rounded flex items-center gap-1.5 border border-[#b91c1c] transition-colors cursor-pointer shadow-sm font-bold"
+            className="bg-[#83161c] hover:bg-[#991b1b] active:bg-[#6e1217] text-[#fdf2f2] px-3 py-1.5 min-h-[38px] rounded-lg flex items-center gap-1.5 border border-[#b91c1c] transition-colors cursor-pointer shadow-sm font-bold"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>+ Character Card</span>
@@ -980,11 +1082,11 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
 
           <button
             onClick={handleAddSticky}
-            className="bg-[#2a1b12] hover:bg-[#3d271a] text-[#f5ebd4] px-3 py-1.5 rounded flex items-center gap-1.5 border border-[#5a3928] transition-colors cursor-pointer shadow-sm"
+            className="bg-[#2a1b12] hover:bg-[#3d271a] text-[#f5ebd4] px-3 py-1.5 min-h-[38px] rounded-lg flex items-center gap-1.5 border border-[#5a3928] transition-colors cursor-pointer shadow-sm font-medium"
             title="Post a freeform theory or clue sticky note"
           >
             <StickyIcon className="w-3.5 h-3.5 text-amber-400" />
-            <span>+ Theory Note</span>
+            <span>+ Note</span>
           </button>
 
           {/* Quick string mode trigger */}
@@ -994,7 +1096,7 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
                 setStringSourceCardId(cards[0].id);
               }
             }}
-            className={`px-3 py-1.5 rounded flex items-center gap-1.5 border transition-colors cursor-pointer shadow-sm ${
+            className={`px-3 py-1.5 min-h-[38px] rounded-lg flex items-center gap-1.5 border transition-colors cursor-pointer shadow-sm ${
               stringSourceCardId
                 ? 'bg-red-950 text-red-200 border-red-700'
                 : 'bg-[#2a1b12] hover:bg-[#3d271a] text-[#f5ebd4] border-[#5a3928]'
@@ -1002,17 +1104,17 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
             title="Connect character cards with red yarn"
           >
             <Link2 className="w-3.5 h-3.5 text-red-500" />
-            <span>Tie Red Yarn</span>
+            <span>Red Yarn</span>
           </button>
 
           {/* Carry Over / Import Evidence Across Episodes Button */}
           <button
             onClick={() => setIsCarryOverModalOpen(true)}
-            className="bg-[#241610] hover:bg-[#382017] text-[#e5c158] hover:text-[#fbf0b9] px-3 py-1.5 rounded flex items-center gap-1.5 border border-[#6b4530] hover:border-[#bfa265] transition-all cursor-pointer shadow-sm"
+            className="bg-[#241610] hover:bg-[#382017] text-[#e5c158] hover:text-[#fbf0b9] px-3 py-1.5 min-h-[38px] rounded-lg flex items-center gap-1.5 border border-[#6b4530] hover:border-[#bfa265] transition-all cursor-pointer shadow-sm"
             title="Carry over evidence to the next episode, or bring evidence from another episode into this one"
           >
             <ArrowRightLeft className="w-3.5 h-3.5 text-amber-400" />
-            <span>Carry Over Evidence</span>
+            <span className="hidden sm:inline">Carry Over</span>
           </button>
         </div>
 
@@ -1079,10 +1181,39 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
         onMouseDown={handleCanvasMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onTouchStart={handleCanvasTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
         className={`relative flex-1 overflow-hidden select-none bg-black-lodge-chevron ${
           isPanning ? 'cursor-grabbing' : 'cursor-grab'
         }`}
       >
+        {/* Floating Mobile/Tablet Quick View Controls */}
+        <div className="sm:hidden fixed bottom-3 left-3 z-30 flex items-center gap-1 bg-[#1a0f0b]/90 backdrop-blur-md p-1.5 rounded-full border border-[#5a3928] shadow-lg">
+          <button
+            onClick={() => handleZoom(0.15)}
+            className="w-8 h-8 rounded-full bg-[#2a170f] active:bg-[#44281a] border border-[#5a3928] text-[#f5ebd4] flex items-center justify-center text-sm font-bold cursor-pointer"
+            title="Zoom in"
+          >
+            +
+          </button>
+          <button
+            onClick={() => handleZoom(-0.15)}
+            className="w-8 h-8 rounded-full bg-[#2a170f] active:bg-[#44281a] border border-[#5a3928] text-[#f5ebd4] flex items-center justify-center text-sm font-bold cursor-pointer"
+            title="Zoom out"
+          >
+            −
+          </button>
+          <button
+            onClick={resetView}
+            className="px-2.5 h-8 rounded-full bg-[#83161c] active:bg-[#991b1b] border border-[#b91c1c] text-white flex items-center justify-center text-[10px] font-typewriter uppercase tracking-wider font-bold cursor-pointer"
+            title="Center board"
+          >
+            Center
+          </button>
+        </div>
+
         {/* Red curtain side trims evoking the Black Lodge */}
         <div className="absolute inset-y-0 left-0 w-4 md:w-8 bg-red-curtain pointer-events-none z-20 border-r border-[#3e080c] opacity-85" />
         <div className="absolute inset-y-0 right-0 w-4 md:w-8 bg-red-curtain pointer-events-none z-20 border-l border-[#3e080c] opacity-85" />
@@ -1187,7 +1318,7 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
         </div>
 
         {/* Mini HUD in bottom-left */}
-        <div className="absolute bottom-4 left-6 z-20 pointer-events-none flex items-center gap-3">
+        <div className="absolute bottom-4 left-6 z-10 pointer-events-none hidden sm:flex items-center gap-3">
           <div className="bg-[#1a0f0b]/90 border border-[#3e2216] px-3 py-1.5 rounded-lg text-[11px] font-typewriter text-[#c2ab95] shadow backdrop-blur-sm">
             <span>Cards: {cards.length}</span>
             <span className="mx-2">•</span>
@@ -1195,8 +1326,8 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
             <span className="mx-2">•</span>
             <span>Theories: {stickies.length}</span>
           </div>
-          <div className="hidden sm:block text-[11px] font-editorial italic text-[#8f745f]">
-            Drag background or use wheel to navigate • Click card link icon to string
+          <div className="hidden md:block text-[11px] font-editorial italic text-[#8f745f]">
+            Drag background or touch to navigate • Click card link icon to string
           </div>
         </div>
       </main>

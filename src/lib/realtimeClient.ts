@@ -22,16 +22,23 @@ export interface WatchPartyChatPayload {
   };
 }
 
+export type ConnectionMode = 'websocket' | 'http_relay' | 'connecting' | 'offline';
+
 type EventListener = (payload: any) => void;
 
 class RealtimeClient {
   private ws: WebSocket | null = null;
   private listeners: Map<string, Set<EventListener>> = new Map();
   private reconnectTimeout: any = null;
+  private heartbeatInterval: any = null;
+  private pollInterval: any = null;
   private isConnected = false;
-  private currentUser: { email: string; name: string; role?: string } | null = null;
+  private connectionMode: ConnectionMode = 'connecting';
+  private currentUser: { email: string; name: string; role?: string; avatar?: string } | null = null;
   private currentBoardId: string = 'episode-1-pilot';
   private currentIsWatching: boolean = false;
+  private lastPolledTimestamp: number = Date.now();
+  private processedEventIds: Set<string> = new Set();
   public onlineUsers: PresenceUser[] = [];
   public screeningState: WatchPartySyncPayload = {
     isOpen: false,
@@ -43,8 +50,58 @@ class RealtimeClient {
 
   constructor() {
     if (typeof window !== 'undefined') {
-      this.connect();
+      this.init();
     }
+  }
+
+  // Detect and return configured server URL
+  public getServerBaseUrl(): string {
+    if (typeof window === 'undefined') return '';
+    const stored = localStorage.getItem('tp_custom_server_url');
+    if (stored && stored.trim()) {
+      return stored.trim().replace(/\/+$/, '');
+    }
+    return '';
+  }
+
+  public setCustomServerUrl(url: string | null) {
+    if (typeof window === 'undefined') return;
+    if (!url || !url.trim()) {
+      localStorage.removeItem('tp_custom_server_url');
+    } else {
+      localStorage.setItem('tp_custom_server_url', url.trim());
+    }
+    // Reconnect with new target
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    this.connect();
+    this.sendHeartbeat();
+  }
+
+  public isDevUrl(): boolean {
+    if (typeof window === 'undefined') return false;
+    return window.location.hostname.includes('ais-dev-');
+  }
+
+  public getSharedServerUrl(): string {
+    if (typeof window === 'undefined') return '';
+    const host = window.location.host;
+    if (host.includes('ais-dev-')) {
+      // In AI Studio, the shareable preview environment begins with ais-pre-
+      return `${window.location.protocol}//${host.replace('ais-dev-', 'ais-pre-')}`;
+    }
+    return `${window.location.protocol}//${host}`;
+  }
+
+  private init() {
+    this.connect();
+    this.startHeartbeatAndPolling();
+  }
+
+  public getConnectionMode(): ConnectionMode {
+    return this.connectionMode;
   }
 
   public connect() {
@@ -54,13 +111,24 @@ class RealtimeClient {
     }
 
     try {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const url = `${protocol}//${window.location.host}/ws`;
-      this.ws = new WebSocket(url);
+      const customBase = this.getServerBaseUrl();
+      let wsUrl: string;
+
+      if (customBase) {
+        const parsed = new URL(customBase);
+        const protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = `${protocol}//${parsed.host}/ws`;
+      } else {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = `${protocol}//${window.location.host}/ws`;
+      }
+
+      this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
         this.isConnected = true;
-        this.emit('connection', { status: 'connected' });
+        this.connectionMode = 'websocket';
+        this.emit('connection', { status: 'connected', mode: 'websocket' });
 
         // Re-announce presence if user is signed in
         if (this.currentUser) {
@@ -83,6 +151,11 @@ class RealtimeClient {
           } else if (msg.type === 'presence:update') {
             this.onlineUsers = msg.payload.onlineUsers || [];
             this.emit('presence:update', { onlineUsers: this.onlineUsers });
+          } else if (msg.type === 'server:ping') {
+            if (msg.onlineUsers) {
+              this.onlineUsers = msg.onlineUsers;
+              this.emit('presence:update', { onlineUsers: this.onlineUsers });
+            }
           } else if (msg.type === 'watch:playback') {
             this.screeningState = msg.payload;
             this.emit('watch:playback', msg.payload);
@@ -95,26 +168,30 @@ class RealtimeClient {
           } else if (msg.type === 'webrtc:signal') {
             this.emit('webrtc:signal', msg.payload);
           } else {
-            // Forward other events like card:move, string:upsert, etc.
+            // Forward board events: card:move, string:upsert, sticky:move, etc.
             this.emit(msg.type, msg.payload);
           }
         } catch (err) {
-          console.error('[RealtimeClient] Error parsing incoming message:', err);
+          console.error('[RealtimeClient] Error parsing incoming WS message:', err);
         }
       };
 
       this.ws.onclose = () => {
         this.isConnected = false;
-        this.emit('connection', { status: 'disconnected' });
+        // Fallback gracefully to HTTP relay mode
+        this.connectionMode = 'http_relay';
+        this.emit('connection', { status: 'fallback_http', mode: 'http_relay' });
         this.scheduleReconnect();
       };
 
       this.ws.onerror = (err) => {
-        console.warn('[RealtimeClient] WebSocket error:', err);
+        console.warn('[RealtimeClient] WebSocket error, fallback to HTTP relay:', err);
+        this.connectionMode = 'http_relay';
         this.ws?.close();
       };
     } catch (e) {
-      console.error('[RealtimeClient] Failed to establish connection:', e);
+      console.error('[RealtimeClient] Failed to establish WS connection:', e);
+      this.connectionMode = 'http_relay';
       this.scheduleReconnect();
     }
   }
@@ -123,11 +200,114 @@ class RealtimeClient {
     if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
     this.reconnectTimeout = setTimeout(() => {
       this.connect();
-    }, 2000);
+    }, 4000);
+  }
+
+  // Starts the HTTP heartbeat and sync event polling engine
+  private startHeartbeatAndPolling() {
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+    if (this.pollInterval) clearInterval(this.pollInterval);
+
+    // Heartbeat every 4 seconds to register online status and get current roster
+    this.heartbeatInterval = setInterval(() => {
+      this.sendHeartbeat();
+    }, 4000);
+
+    // Poll for remote changes every 1.5 seconds if WS is disconnected, or every 4s as safety-net reconciliation
+    this.pollInterval = setInterval(() => {
+      this.pollSyncEvents();
+    }, this.isConnected ? 4000 : 1500);
+
+    // Initial heartbeat
+    setTimeout(() => {
+      this.sendHeartbeat();
+      this.pollSyncEvents();
+    }, 800);
+  }
+
+  // Sends HTTP heartbeat to register presence even without WebSocket
+  public async sendHeartbeat() {
+    if (!this.currentUser) return;
+    try {
+      const customBase = this.getServerBaseUrl();
+      const url = `${customBase}/api/presence/heartbeat`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user: this.currentUser,
+          boardId: this.currentBoardId,
+          isWatching: this.currentIsWatching,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.onlineUsers) {
+          this.onlineUsers = data.onlineUsers;
+          this.emit('presence:update', { onlineUsers: this.onlineUsers });
+        }
+        if (data.screeningState && !this.screeningState.isOpen && data.screeningState.isOpen) {
+          this.screeningState = data.screeningState;
+          this.emit('watch:playback', this.screeningState);
+        }
+        if (!this.isConnected) {
+          this.connectionMode = 'http_relay';
+          this.emit('connection', { status: 'connected_http', mode: 'http_relay' });
+        }
+      }
+    } catch (err) {
+      // Network glitch or offline
+    }
+  }
+
+  // Polls server for any new sync events created by other connected detectives
+  public async pollSyncEvents() {
+    try {
+      const customBase = this.getServerBaseUrl();
+      const senderId = this.currentUser?.email || '';
+      const url = `${customBase}/api/sync/poll?since=${this.lastPolledTimestamp}&boardId=${encodeURIComponent(
+        this.currentBoardId
+      )}&senderId=${encodeURIComponent(senderId)}`;
+
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.events && Array.isArray(data.events)) {
+          for (const ev of data.events) {
+            if (this.processedEventIds.has(ev.id)) continue;
+            this.processedEventIds.add(ev.id);
+            if (this.processedEventIds.size > 500) {
+              const first = Array.from(this.processedEventIds)[0];
+              this.processedEventIds.delete(first);
+            }
+
+            // Emit the event so the board or screening room updates
+            this.emit(ev.type, ev.payload);
+          }
+        }
+
+        if (data.serverTime) {
+          // Adjust last polled timestamp (with a 100ms overlap to avoid edge race conditions)
+          this.lastPolledTimestamp = Math.max(this.lastPolledTimestamp, data.serverTime - 100);
+        }
+
+        if (data.onlineUsers) {
+          this.onlineUsers = data.onlineUsers;
+          this.emit('presence:update', { onlineUsers: this.onlineUsers });
+        }
+
+        if (data.screeningState) {
+          this.screeningState = data.screeningState;
+        }
+      }
+    } catch {
+      // Ignore polling transient errors
+    }
   }
 
   public getConnected(): boolean {
-    return this.isConnected;
+    return this.isConnected || this.connectionMode === 'http_relay';
   }
 
   public on(event: string, callback: EventListener): () => void {
@@ -153,24 +333,48 @@ class RealtimeClient {
     }
   }
 
+  // Dual-Engine Send: Dispatches via WebSocket if open, and HTTP broadcast relay for persistence
   public send(type: string, payload: any) {
+    // 1. Try WebSocket if OPEN
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type, payload }));
+      try {
+        this.ws.send(JSON.stringify({ type, payload }));
+      } catch (err) {
+        console.warn('[RealtimeClient] Failed to send via WS:', err);
+      }
     }
+
+    // 2. Also dispatch via HTTP relay endpoint to guarantee sync if partner is in another instance or mobile
+    const customBase = this.getServerBaseUrl();
+    const url = `${customBase}/api/sync/broadcast`;
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type,
+        payload,
+        senderId: this.currentUser?.email,
+        boardId: this.currentBoardId,
+      }),
+    }).catch(() => {
+      // Silently ignore HTTP relay failure if network offline
+    });
   }
 
   // Presence
-  public joinPresence(user: { email: string; name: string; role?: string }, boardId: string, isWatching = false) {
+  public joinPresence(user: { email: string; name: string; role?: string; avatar?: string }, boardId: string, isWatching = false) {
     this.currentUser = user;
     this.currentBoardId = boardId;
     this.currentIsWatching = isWatching;
     this.send('presence:join', { user, boardId, isWatching });
+    this.sendHeartbeat();
   }
 
   public updateActivity(boardId: string, isWatching: boolean) {
     this.currentBoardId = boardId;
     this.currentIsWatching = isWatching;
     this.send('presence:activity', { activeBoardId: boardId, isWatching });
+    this.sendHeartbeat();
   }
 
   // Clue Board Realtime Sync
@@ -235,3 +439,4 @@ class RealtimeClient {
 }
 
 export const realtimeClient = new RealtimeClient();
+

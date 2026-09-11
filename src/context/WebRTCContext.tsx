@@ -3,6 +3,7 @@ import { WebRTCManager } from '../lib/webrtcService';
 
 interface WebRTCContextType {
   inCall: boolean;
+  isRinging: boolean;
   isAudioMuted: boolean;
   isVideoOff: boolean;
   connectionState: RTCPeerConnectionState;
@@ -11,6 +12,8 @@ interface WebRTCContextType {
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
   startCall: () => Promise<void>;
+  acceptCall: () => Promise<void>;
+  declineCall: () => void;
   endCall: () => void;
   toggleMic: () => void;
   toggleCamera: () => void;
@@ -41,6 +44,7 @@ export const WebRTCProvider: React.FC<WebRTCProviderProps> = ({
   boardId,
 }) => {
   const [inCall, setInCall] = useState(false);
+  const [isRinging, setIsRinging] = useState(false);
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [connectionState, setConnectionState] = useState<RTCPeerConnectionState>('new');
@@ -65,12 +69,13 @@ export const WebRTCProvider: React.FC<WebRTCProviderProps> = ({
 
     manager.onIncomingCallCallback = (from) => {
       setIncomingCallFrom(from);
-      setInCall(true);
+      setIsRinging(true);
     };
 
     return () => {
       manager.cleanup();
       setInCall(false);
+      setIsRinging(false);
       setLocalStream(null);
       setRemoteStream(null);
     };
@@ -91,6 +96,30 @@ export const WebRTCProvider: React.FC<WebRTCProviderProps> = ({
     }
   };
 
+  const acceptCall = async () => {
+    setErrorMsg(null);
+    try {
+      if (!rtcManagerRef.current) return;
+      const stream = await rtcManagerRef.current.startLocalMedia(!isVideoOff, !isAudioMuted);
+      setLocalStream(stream);
+      setIsRinging(false);
+      setInCall(true);
+      await rtcManagerRef.current.acceptPendingCall();
+    } catch (err: unknown) {
+      console.error('Failed to accept call:', err);
+      const msg = err instanceof Error ? err.message : 'Media permission denied';
+      setErrorMsg(`Webcam / Mic Error: ${msg}. Check browser permissions.`);
+    }
+  };
+
+  const declineCall = () => {
+    setIsRinging(false);
+    setIncomingCallFrom(null);
+    if (rtcManagerRef.current) {
+      rtcManagerRef.current.endCall(true);
+    }
+  };
+
   const endCall = () => {
     if (rtcManagerRef.current) {
       rtcManagerRef.current.endCall(true);
@@ -98,6 +127,7 @@ export const WebRTCProvider: React.FC<WebRTCProviderProps> = ({
     setLocalStream(null);
     setRemoteStream(null);
     setInCall(false);
+    setIsRinging(false);
     setIncomingCallFrom(null);
     setConnectionState('closed');
   };
@@ -120,6 +150,7 @@ export const WebRTCProvider: React.FC<WebRTCProviderProps> = ({
     <WebRTCContext.Provider
       value={{
         inCall,
+        isRinging,
         isAudioMuted,
         isVideoOff,
         connectionState,
@@ -128,6 +159,8 @@ export const WebRTCProvider: React.FC<WebRTCProviderProps> = ({
         localStream,
         remoteStream,
         startCall,
+        acceptCall,
+        declineCall,
         endCall,
         toggleMic,
         toggleCamera,

@@ -6,6 +6,11 @@ const RTC_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
+    { urls: 'stun:stun.services.mozilla.com' },
   ],
 };
 
@@ -18,6 +23,7 @@ export class WebRTCManager {
   private channel: ReturnType<NonNullable<ReturnType<typeof getSupabase>>['channel']> | null = null;
   private localBroadcast: BroadcastChannel | null = null;
   private unsubscribeRealtime: (() => void) | null = null;
+  public pendingOffer: { from: string; sdp: RTCSessionDescriptionInit } | null = null;
 
   public onRemoteStreamCallback: ((stream: MediaStream | null) => void) | null = null;
   public onConnectionStateChangeCallback: ((state: RTCPeerConnectionState) => void) | null = null;
@@ -169,18 +175,28 @@ export class WebRTCManager {
     });
   }
 
+  public async acceptPendingCall() {
+    if (this.pendingOffer) {
+      const { from, sdp } = this.pendingOffer;
+      this.pendingOffer = null;
+      await this.acceptIncomingCall(from, sdp);
+    }
+  }
+
   private async handleSignal(signal: WebRTCSignalPayload) {
     if (signal.from === this.currentUserId) return;
-    if (signal.board_id !== this.boardId) return;
+    // Allow signals across boards so detectives can call each other from any screen
+    if (signal.board_id && this.boardId && signal.board_id !== this.boardId) {
+      console.log('[WebRTC] Signal received from different board, bridging call:', signal.board_id);
+    }
 
     switch (signal.type) {
       case 'offer':
         if (signal.sdp) {
+          this.pendingOffer = { from: signal.from, sdp: signal.sdp };
           if (this.onIncomingCallCallback) {
             this.onIncomingCallCallback(signal.from);
           }
-          // Accept offer
-          await this.acceptIncomingCall(signal.from, signal.sdp);
         }
         break;
 

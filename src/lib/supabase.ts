@@ -128,20 +128,54 @@ create table if not exists sticky_notes (
   created_at timestamp with time zone default now()
 );
 
--- Enable RLS and simple open policies for the two of you:
+-- Enable RLS and simple open policies for both anon (public key) and authenticated users:
 alter table boards enable row level security;
 alter table character_cards enable row level security;
 alter table string_connections enable row level security;
 alter table sticky_notes enable row level security;
 
-create policy "Allow all for authenticated users on boards" on boards for all to authenticated using (true) with check (true);
-create policy "Allow all for authenticated users on character_cards" on character_cards for all to authenticated using (true) with check (true);
-create policy "Allow all for authenticated users on string_connections" on string_connections for all to authenticated using (true) with check (true);
-create policy "Allow all for authenticated users on sticky_notes" on sticky_notes for all to authenticated using (true) with check (true);
+drop policy if exists "Allow all for authenticated users on boards" on boards;
+drop policy if exists "Allow all for authenticated users on character_cards" on character_cards;
+drop policy if exists "Allow all for authenticated users on string_connections" on string_connections;
+drop policy if exists "Allow all for authenticated users on sticky_notes" on sticky_notes;
 
--- Enable realtime publications for live sync:
-alter publication supabase_realtime add table boards;
-alter publication supabase_realtime add table character_cards;
-alter publication supabase_realtime add table string_connections;
-alter publication supabase_realtime add table sticky_notes;
+drop policy if exists "Allow all on boards" on boards;
+drop policy if exists "Allow all on character_cards" on character_cards;
+drop policy if exists "Allow all on string_connections" on string_connections;
+drop policy if exists "Allow all on sticky_notes" on sticky_notes;
+
+create policy "Allow all on boards" on boards for all to anon, authenticated using (true) with check (true);
+create policy "Allow all on character_cards" on character_cards for all to anon, authenticated using (true) with check (true);
+create policy "Allow all on string_connections" on string_connections for all to anon, authenticated using (true) with check (true);
+create policy "Allow all on sticky_notes" on sticky_notes for all to anon, authenticated using (true) with check (true);
+
+-- Seed canonical episode boards so foreign keys are satisfied:
+insert into boards (id, title, episode_number, description) values
+  ('episode-1-pilot', 'Episode 1: Pilot (Northwest Passage)', 1, 'The discovery of Laura Palmer wrapped in plastic.'),
+  ('episode-2-traces-to-nowhere', 'Episode 2: Traces to Nowhere', 2, 'Agent Cooper questions James Hurley.'),
+  ('episode-3-zen-skill', 'Episode 3: Zen, or the Skill to Catch a Killer', 3, 'Tibetan rock-throwing technique in the woods.'),
+  ('episode-4-rest-in-pain', 'Episode 4: Rest in Pain', 4, 'The town gathers for Laura Palmer funeral.'),
+  ('episode-5-the-one-armed-man', 'Episode 5: The One-Armed Man', 5, 'Cooper and Truman question Phillip Gerard.')
+on conflict (id) do nothing;
+
+-- Enable realtime publications safely without failing if already added:
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table boards;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table character_cards;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table string_connections;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table sticky_notes;
+  exception when others then null;
+  end;
+end $$;
 `;

@@ -1419,14 +1419,19 @@ app.post('/api/boards/:boardId/cards', (req, res) => {
     db.cards.push(card);
   }
   scheduleSaveDatabase();
+  const boardId = card.board_id || req.params.boardId;
+  recordSyncEvent('card:upsert', { card }, undefined, boardId);
+  broadcastToAll({ type: 'card:upsert', payload: { card } });
   res.json({ success: true, card });
 });
 
 app.delete('/api/boards/:boardId/cards/:cardId', (req, res) => {
-  const { cardId } = req.params;
+  const { cardId, boardId } = req.params;
   db.cards = db.cards.filter((c) => c.id !== cardId);
   db.strings = db.strings.filter((s) => s.source_id !== cardId && s.target_id !== cardId);
   scheduleSaveDatabase();
+  recordSyncEvent('card:delete', { id: cardId }, undefined, boardId);
+  broadcastToAll({ type: 'card:delete', payload: { id: cardId } });
   res.json({ success: true });
 });
 
@@ -1441,13 +1446,18 @@ app.post('/api/boards/:boardId/strings', (req, res) => {
     db.strings.push(string);
   }
   scheduleSaveDatabase();
+  const boardId = string.board_id || req.params.boardId;
+  recordSyncEvent('string:upsert', { string }, undefined, boardId);
+  broadcastToAll({ type: 'string:upsert', payload: { string } });
   res.json({ success: true, string });
 });
 
 app.delete('/api/boards/:boardId/strings/:stringId', (req, res) => {
-  const { stringId } = req.params;
+  const { stringId, boardId } = req.params;
   db.strings = db.strings.filter((s) => s.id !== stringId);
   scheduleSaveDatabase();
+  recordSyncEvent('string:delete', { id: stringId }, undefined, boardId);
+  broadcastToAll({ type: 'string:delete', payload: { id: stringId } });
   res.json({ success: true });
 });
 
@@ -1462,13 +1472,18 @@ app.post('/api/boards/:boardId/stickies', (req, res) => {
     db.stickies.push(sticky);
   }
   scheduleSaveDatabase();
+  const boardId = sticky.board_id || req.params.boardId;
+  recordSyncEvent('sticky:upsert', { sticky }, undefined, boardId);
+  broadcastToAll({ type: 'sticky:upsert', payload: { sticky } });
   res.json({ success: true, sticky });
 });
 
 app.delete('/api/boards/:boardId/stickies/:stickyId', (req, res) => {
-  const { stickyId } = req.params;
+  const { stickyId, boardId } = req.params;
   db.stickies = db.stickies.filter((s) => s.id !== stickyId);
   scheduleSaveDatabase();
+  recordSyncEvent('sticky:delete', { id: stickyId }, undefined, boardId);
+  broadcastToAll({ type: 'sticky:delete', payload: { id: stickyId } });
   res.json({ success: true });
 });
 

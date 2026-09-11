@@ -377,7 +377,29 @@ export class BoardRepository {
     const supabase = getSupabase();
     if (supabase) {
       try {
-        await supabase.from('character_cards').upsert([card]);
+        // Ensure parent board exists in Supabase first
+        const allBoards = this.getLocal<EpisodeBoard[]>(STORAGE_KEYS.BOARDS, []);
+        const boardObj: EpisodeBoard = allBoards.find(b => b.id === card.board_id) || {
+          id: card.board_id,
+          title: 'Investigation Board',
+          episode_number: 1,
+          description: '',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        await supabase.from('boards').upsert([{
+          id: boardObj.id,
+          title: boardObj.title,
+          episode_number: boardObj.episode_number || 1,
+          description: boardObj.description || '',
+        }], { onConflict: 'id' });
+
+        const { error } = await supabase.from('character_cards').upsert([card]);
+        if (error) {
+          console.warn('Supabase upsertCard error:', error.message);
+        } else {
+          console.log('Saved card to Supabase:', card.name);
+        }
       } catch (err) {
         console.warn('Error upserting card to Supabase:', err);
       }
@@ -407,11 +429,13 @@ export class BoardRepository {
     const supabase = getSupabase();
     if (supabase) {
       try {
-        await supabase.from('character_cards').delete().eq('id', cardId);
-        await supabase
+        const res1 = await supabase.from('character_cards').delete().eq('id', cardId);
+        if (res1.error) console.warn('Supabase deleteCard error:', res1.error.message);
+        const res2 = await supabase
           .from('string_connections')
           .delete()
           .or(`source_id.eq.${cardId},target_id.eq.${cardId}`);
+        if (res2.error) console.warn('Supabase delete string connections error:', res2.error.message);
       } catch (err) {
         console.warn('Error deleting card in Supabase:', err);
       }
@@ -443,7 +467,24 @@ export class BoardRepository {
     const supabase = getSupabase();
     if (supabase) {
       try {
-        await supabase.from('string_connections').upsert([str]);
+        const allBoards = this.getLocal<EpisodeBoard[]>(STORAGE_KEYS.BOARDS, []);
+        const boardObj: EpisodeBoard = allBoards.find(b => b.id === str.board_id) || {
+          id: str.board_id,
+          title: 'Investigation Board',
+          episode_number: 1,
+          description: '',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        await supabase.from('boards').upsert([{
+          id: boardObj.id,
+          title: boardObj.title,
+          episode_number: boardObj.episode_number || 1,
+          description: boardObj.description || '',
+        }], { onConflict: 'id' });
+
+        const { error } = await supabase.from('string_connections').upsert([str]);
+        if (error) console.warn('Supabase upsertString error:', error.message);
       } catch (err) {
         console.warn('Error upserting string to Supabase:', err);
       }
@@ -470,7 +511,8 @@ export class BoardRepository {
     const supabase = getSupabase();
     if (supabase) {
       try {
-        await supabase.from('string_connections').delete().eq('id', stringId);
+        const { error } = await supabase.from('string_connections').delete().eq('id', stringId);
+        if (error) console.warn('Supabase deleteString error:', error.message);
       } catch (err) {
         console.warn('Error deleting string from Supabase:', err);
       }
@@ -502,7 +544,24 @@ export class BoardRepository {
     const supabase = getSupabase();
     if (supabase) {
       try {
-        await supabase.from('sticky_notes').upsert([note]);
+        const allBoards = this.getLocal<EpisodeBoard[]>(STORAGE_KEYS.BOARDS, []);
+        const boardObj: EpisodeBoard = allBoards.find(b => b.id === note.board_id) || {
+          id: note.board_id,
+          title: 'Investigation Board',
+          episode_number: 1,
+          description: '',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        await supabase.from('boards').upsert([{
+          id: boardObj.id,
+          title: boardObj.title,
+          episode_number: boardObj.episode_number || 1,
+          description: boardObj.description || '',
+        }], { onConflict: 'id' });
+
+        const { error } = await supabase.from('sticky_notes').upsert([note]);
+        if (error) console.warn('Supabase upsertSticky error:', error.message);
       } catch (err) {
         console.warn('Error upserting sticky note to Supabase:', err);
       }
@@ -529,7 +588,8 @@ export class BoardRepository {
     const supabase = getSupabase();
     if (supabase) {
       try {
-        await supabase.from('sticky_notes').delete().eq('id', noteId);
+        const { error } = await supabase.from('sticky_notes').delete().eq('id', noteId);
+        if (error) console.warn('Supabase deleteSticky error:', error.message);
       } catch (err) {
         console.warn('Error deleting sticky note from Supabase:', err);
       }

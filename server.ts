@@ -186,6 +186,7 @@ function loadDatabase() {
         strings: parsed.strings || DEFAULT_DB.strings,
         stickies: parsed.stickies || DEFAULT_DB.stickies,
         chat: parsed.chat || DEFAULT_DB.chat,
+        supabaseConfig: parsed.supabaseConfig || DEFAULT_DB.supabaseConfig,
         screeningState: parsed.screeningState || DEFAULT_DB.screeningState,
       };
 
@@ -1546,6 +1547,126 @@ async function serverDeleteSticky(stickyId: string) {
   }
 }
 
+async function hydrateFromSupabase() {
+  const supabase = getServerSupabase();
+  if (!supabase) return;
+
+  try {
+    const [boardsRes, cardsRes, stickiesRes, stringsRes] = await Promise.all([
+      supabase.from('boards').select('*'),
+      supabase.from('character_cards').select('*'),
+      supabase.from('sticky_notes').select('*'),
+      supabase.from('string_connections').select('*'),
+    ]);
+
+    let changed = false;
+
+    if (!boardsRes.error && Array.isArray(boardsRes.data) && boardsRes.data.length > 0) {
+      for (const b of boardsRes.data) {
+        if (!db.boards.some((existing) => existing.id === b.id)) {
+          db.boards.push(b);
+          changed = true;
+        }
+      }
+    }
+
+    if (!cardsRes.error && Array.isArray(cardsRes.data) && cardsRes.data.length > 0) {
+      for (const c of cardsRes.data) {
+        const idx = db.cards.findIndex((existing) => existing.id === c.id);
+        if (idx >= 0) {
+          db.cards[idx] = { ...db.cards[idx], ...c };
+        } else {
+          db.cards.push(c);
+          changed = true;
+        }
+      }
+    }
+
+    if (!stickiesRes.error && Array.isArray(stickiesRes.data) && stickiesRes.data.length > 0) {
+      for (const s of stickiesRes.data) {
+        const idx = db.stickies.findIndex((existing) => existing.id === s.id);
+        if (idx >= 0) {
+          db.stickies[idx] = { ...db.stickies[idx], ...s };
+        } else {
+          db.stickies.push(s);
+          changed = true;
+        }
+      }
+    }
+
+    if (!stringsRes.error && Array.isArray(stringsRes.data) && stringsRes.data.length > 0) {
+      for (const str of stringsRes.data) {
+        const idx = db.strings.findIndex((existing) => existing.id === str.id);
+        if (idx >= 0) {
+          db.strings[idx] = { ...db.strings[idx], ...str };
+        } else {
+          db.strings.push(str);
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      saveDatabaseImmediate();
+      console.log(`[Supabase Hydrate] Synced from database: ${db.cards.length} cards, ${db.stickies.length} stickies, ${db.strings.length} strings`);
+    }
+  } catch (err) {
+    console.warn('[Supabase Hydrate] Error hydrating from remote database:', err);
+  }
+}
+
+// Bulk sync endpoint to preserve all board items reliably
+app.post('/api/boards/:boardId/sync-all', (req, res) => {
+  const { boardId } = req.params;
+  const { cards = [], strings = [], stickies = [] } = req.body;
+
+  if (Array.isArray(cards) && cards.length > 0) {
+    for (const card of cards) {
+      const idx = db.cards.findIndex((c) => c.id === card.id);
+      if (idx >= 0) {
+        db.cards[idx] = card;
+      } else {
+        db.cards.push(card);
+      }
+      serverSyncCard(card).catch(() => {});
+    }
+  }
+
+  if (Array.isArray(stickies) && stickies.length > 0) {
+    for (const sticky of stickies) {
+      const idx = db.stickies.findIndex((s) => s.id === sticky.id);
+      if (idx >= 0) {
+        db.stickies[idx] = sticky;
+      } else {
+        db.stickies.push(sticky);
+      }
+      serverSyncSticky(sticky).catch(() => {});
+    }
+  }
+
+  if (Array.isArray(strings) && strings.length > 0) {
+    for (const str of strings) {
+      const idx = db.strings.findIndex((s) => s.id === str.id);
+      if (idx >= 0) {
+        db.strings[idx] = str;
+      } else {
+        db.strings.push(str);
+      }
+      serverSyncString(str).catch(() => {});
+    }
+  }
+
+  saveDatabaseImmediate();
+  res.json({
+    success: true,
+    total: {
+      cards: db.cards.filter((c) => c.board_id === boardId).length,
+      stickies: db.stickies.filter((s) => s.board_id === boardId).length,
+      strings: db.strings.filter((str) => str.board_id === boardId).length,
+    },
+  });
+});
+
 // Cards endpoints
 app.post('/api/boards/:boardId/cards', (req, res) => {
   const card = req.body;
@@ -1556,7 +1677,7 @@ app.post('/api/boards/:boardId/cards', (req, res) => {
   } else {
     db.cards.push(card);
   }
-  scheduleSaveDatabase();
+  saveDatabaseImmediate();
   const boardId = card.board_id || req.params.boardId;
   recordSyncEvent('card:upsert', { card }, undefined, boardId);
   broadcastToAll({ type: 'card:upsert', payload: { card } });
@@ -1568,7 +1689,7 @@ app.delete('/api/boards/:boardId/cards/:cardId', (req, res) => {
   const { cardId, boardId } = req.params;
   db.cards = db.cards.filter((c) => c.id !== cardId);
   db.strings = db.strings.filter((s) => s.source_id !== cardId && s.target_id !== cardId);
-  scheduleSaveDatabase();
+  saveDatabaseImmediate();
   recordSyncEvent('card:delete', { id: cardId }, undefined, boardId);
   broadcastToAll({ type: 'card:delete', payload: { id: cardId } });
   serverDeleteCard(cardId).catch(() => {});
@@ -1585,7 +1706,7 @@ app.post('/api/boards/:boardId/strings', (req, res) => {
   } else {
     db.strings.push(string);
   }
-  scheduleSaveDatabase();
+  saveDatabaseImmediate();
   const boardId = string.board_id || req.params.boardId;
   recordSyncEvent('string:upsert', { string }, undefined, boardId);
   broadcastToAll({ type: 'string:upsert', payload: { string } });
@@ -1596,7 +1717,7 @@ app.post('/api/boards/:boardId/strings', (req, res) => {
 app.delete('/api/boards/:boardId/strings/:stringId', (req, res) => {
   const { stringId, boardId } = req.params;
   db.strings = db.strings.filter((s) => s.id !== stringId);
-  scheduleSaveDatabase();
+  saveDatabaseImmediate();
   recordSyncEvent('string:delete', { id: stringId }, undefined, boardId);
   broadcastToAll({ type: 'string:delete', payload: { id: stringId } });
   serverDeleteString(stringId).catch(() => {});
@@ -1613,7 +1734,7 @@ app.post('/api/boards/:boardId/stickies', (req, res) => {
   } else {
     db.stickies.push(sticky);
   }
-  scheduleSaveDatabase();
+  saveDatabaseImmediate();
   const boardId = sticky.board_id || req.params.boardId;
   recordSyncEvent('sticky:upsert', { sticky }, undefined, boardId);
   broadcastToAll({ type: 'sticky:upsert', payload: { sticky } });
@@ -1624,7 +1745,7 @@ app.post('/api/boards/:boardId/stickies', (req, res) => {
 app.delete('/api/boards/:boardId/stickies/:stickyId', (req, res) => {
   const { stickyId, boardId } = req.params;
   db.stickies = db.stickies.filter((s) => s.id !== stickyId);
-  scheduleSaveDatabase();
+  saveDatabaseImmediate();
   recordSyncEvent('sticky:delete', { id: stickyId }, undefined, boardId);
   broadcastToAll({ type: 'sticky:delete', payload: { id: stickyId } });
   serverDeleteSticky(stickyId).catch(() => {});
@@ -1640,7 +1761,8 @@ app.post('/api/supabase/config', (req, res) => {
   const { url, key } = req.body;
   if (url && key) {
     db.supabaseConfig = { url: url.trim(), key: key.trim() };
-    scheduleSaveDatabase();
+    saveDatabaseImmediate();
+    hydrateFromSupabase().catch(() => {});
   }
   res.json({ success: true, config: db.supabaseConfig || { url: '', key: '' } });
 });
@@ -1849,6 +1971,9 @@ async function start() {
   if (!IS_VERCEL) {
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`[Twin Peaks Server] Sheriff Dispatch Server running on port ${PORT}`);
+      hydrateFromSupabase().catch((err) => {
+        console.warn('[Server Startup] Hydrate exception:', err);
+      });
     });
   }
 }

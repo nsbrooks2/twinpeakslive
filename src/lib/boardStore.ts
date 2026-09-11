@@ -29,9 +29,50 @@ const STORAGE_KEYS = {
   STRINGS: 'tp_caseboard_strings_v2',
   STICKIES: 'tp_caseboard_stickies_v2',
   ACTIVE_BOARD: 'tp_caseboard_active_id',
+  DELETED_IDS: 'tp_caseboard_deleted_ids_v1',
 };
 
 export class BoardRepository {
+  static getDeletedIds(): Set<string> {
+    if (typeof window === 'undefined') return new Set();
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.DELETED_IDS);
+      if (raw) return new Set(JSON.parse(raw));
+    } catch {
+      // ignore
+    }
+    return new Set();
+  }
+
+  static addDeletedId(id: string) {
+    if (typeof window === 'undefined' || !id) return;
+    const ids = this.getDeletedIds();
+    ids.add(id);
+    try {
+      localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(Array.from(ids)));
+    } catch {
+      // ignore
+    }
+  }
+
+  static removeDeletedId(id: string) {
+    if (typeof window === 'undefined' || !id) return;
+    const ids = this.getDeletedIds();
+    if (ids.has(id)) {
+      ids.delete(id);
+      try {
+        localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(Array.from(ids)));
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  static clearDeletedIds() {
+    if (typeof window === 'undefined') return;
+    localStorage.removeItem(STORAGE_KEYS.DELETED_IDS);
+  }
+
   private static getLocal<T>(key: string, fallback: T): T {
     if (typeof window === 'undefined') return fallback;
     const raw = localStorage.getItem(key);
@@ -131,24 +172,46 @@ export class BoardRepository {
       console.warn('Server loadBoardDetails failed:', err);
     }
 
+    return this.getLocalItems(boardId);
+  }
+
+  // Get local items synchronously
+  static getLocalItems(boardId: string): {
+    cards: CharacterCard[];
+    strings: StringConnection[];
+    stickies: StickyNote[];
+  } {
+    const deletedIds = this.getDeletedIds();
     const allCards = this.getLocal<CharacterCard[]>(STORAGE_KEYS.CARDS, []);
     const allStrings = this.getLocal<StringConnection[]>(STORAGE_KEYS.STRINGS, []);
     const allStickies = this.getLocal<StickyNote[]>(STORAGE_KEYS.STICKIES, []);
 
     return {
-      cards: allCards.filter(c => c.board_id === boardId),
-      strings: allStrings.filter(s => s.board_id === boardId),
-      stickies: allStickies.filter(n => n.board_id === boardId),
+      cards: allCards.filter(c => c.board_id === boardId && !deletedIds.has(c.id)),
+      strings: allStrings.filter(s => s.board_id === boardId && !deletedIds.has(s.id)),
+      stickies: allStickies.filter(n => n.board_id === boardId && !deletedIds.has(n.id)),
     };
   }
 
-  // Helper: Sync cards, strings, stickies to Supabase
+  // Helper: Sync cards, strings, stickies to Server and Supabase
   private static async syncItemsToSupabase(
     boardId: string,
     cards: CharacterCard[],
     strings: StringConnection[],
     stickies: StickyNote[]
   ) {
+    // 1. Send bulk sync to Server
+    try {
+      fetch(getApiUrl(`/api/boards/${boardId}/sync-all`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cards, strings, stickies }),
+      }).catch(() => {});
+    } catch {
+      // ignore
+    }
+
+    // 2. Send bulk sync to Supabase
     const supabase = getSupabase();
     if (!supabase) return;
 
@@ -170,15 +233,42 @@ export class BoardRepository {
       }], { onConflict: 'id' });
 
       if (cards.length > 0) {
-        const { error } = await supabase.from('character_cards').upsert(cards, { onConflict: 'id' });
+        const cleanCards = cards.map(c => ({
+          id: c.id,
+          board_id: c.board_id || boardId,
+          name: c.name || 'Suspect',
+          role: c.role || '',
+          notes: c.notes || '',
+          status: c.status || 'Unknown',
+          x: typeof c.x === 'number' ? c.x : 100,
+          y: typeof c.y === 'number' ? c.y : 100,
+          z_index: typeof c.z_index === 'number' ? c.z_index : 1,
+        }));
+        const { error } = await supabase.from('character_cards').upsert(cleanCards, { onConflict: 'id' });
         if (error) console.warn('Auto-seed cards error:', error.message);
       }
       if (stickies.length > 0) {
-        const { error } = await supabase.from('sticky_notes').upsert(stickies, { onConflict: 'id' });
+        const cleanStickies = stickies.map(st => ({
+          id: st.id,
+          board_id: st.board_id || boardId,
+          content: st.content || '',
+          color: st.color || 'parchment',
+          x: typeof st.x === 'number' ? st.x : 100,
+          y: typeof st.y === 'number' ? st.y : 100,
+          author: st.author || '',
+        }));
+        const { error } = await supabase.from('sticky_notes').upsert(cleanStickies, { onConflict: 'id' });
         if (error) console.warn('Auto-seed stickies error:', error.message);
       }
       if (strings.length > 0) {
-        const { error } = await supabase.from('string_connections').upsert(strings, { onConflict: 'id' });
+        const cleanStrings = strings.map(s => ({
+          id: s.id,
+          board_id: s.board_id || boardId,
+          source_id: s.source_id,
+          target_id: s.target_id,
+          label: s.label || '',
+        }));
+        const { error } = await supabase.from('string_connections').upsert(cleanStrings, { onConflict: 'id' });
         if (error) console.warn('Auto-seed strings error:', error.message);
       }
     } catch (err) {
@@ -186,13 +276,33 @@ export class BoardRepository {
     }
   }
 
-  // Load all items for a board
+  // Load all items for a board - NEVER WIPES LOCAL ITEMS
   static async loadBoardDetails(boardId: string): Promise<{
     cards: CharacterCard[];
     strings: StringConnection[];
     stickies: StickyNote[];
   }> {
-    // 1. Try Supabase first if connected
+    const deletedIds = this.getDeletedIds();
+
+    // 1. Always seed working state with existing local items
+    const allLocalCards = this.getLocal<CharacterCard[]>(STORAGE_KEYS.CARDS, []);
+    const allLocalStrings = this.getLocal<StringConnection[]>(STORAGE_KEYS.STRINGS, []);
+    const allLocalStickies = this.getLocal<StickyNote[]>(STORAGE_KEYS.STICKIES, []);
+
+    const localCards = allLocalCards.filter(c => c.board_id === boardId && !deletedIds.has(c.id));
+    const localStrings = allLocalStrings.filter(s => s.board_id === boardId && !deletedIds.has(s.id));
+    const localStickies = allLocalStickies.filter(s => s.board_id === boardId && !deletedIds.has(s.id));
+
+    const mergedCardsMap = new Map<string, CharacterCard>();
+    localCards.forEach(c => mergedCardsMap.set(c.id, c));
+
+    const mergedStickiesMap = new Map<string, StickyNote>();
+    localStickies.forEach(s => mergedStickiesMap.set(s.id, s));
+
+    const mergedStringsMap = new Map<string, StringConnection>();
+    localStrings.forEach(s => mergedStringsMap.set(s.id, s));
+
+    // 2. Fetch from Supabase (if connected)
     const supabase = getSupabase();
     if (supabase) {
       try {
@@ -202,52 +312,91 @@ export class BoardRepository {
           supabase.from('sticky_notes').select('*').eq('board_id', boardId),
         ]);
 
-        if (!cardsRes.error && !stringsRes.error && !stickiesRes.error) {
-          let cards = cardsRes.data || [];
-          let strings = stringsRes.data || [];
-          let stickies = stickiesRes.data || [];
-
-          // If Supabase returned empty for this board, auto-seed from server or local seed data!
-          if (cards.length === 0 && stickies.length === 0) {
-            const serverOrLocal = await this.loadBoardDetailsFromServerOrLocal(boardId);
-            if (serverOrLocal.cards.length > 0 || serverOrLocal.stickies.length > 0) {
-              cards = serverOrLocal.cards;
-              strings = serverOrLocal.strings;
-              stickies = serverOrLocal.stickies;
-
-              // Auto-seed to Supabase in background
-              this.syncItemsToSupabase(boardId, cards, strings, stickies).catch(err => {
-                console.warn('Auto-seed to Supabase failed:', err);
-              });
+        if (!cardsRes.error && Array.isArray(cardsRes.data)) {
+          for (const c of cardsRes.data) {
+            if (!deletedIds.has(c.id)) {
+              const existing = mergedCardsMap.get(c.id);
+              mergedCardsMap.set(c.id, existing ? { ...existing, ...c } : c);
             }
           }
-
-          // Cache in local storage
-          const allCards = this.getLocal<CharacterCard[]>(STORAGE_KEYS.CARDS, []);
-          const otherCards = allCards.filter(c => c.board_id !== boardId);
-          this.setLocal(STORAGE_KEYS.CARDS, [...otherCards, ...cards]);
-
-          const allStrings = this.getLocal<StringConnection[]>(STORAGE_KEYS.STRINGS, []);
-          const otherStrings = allStrings.filter(s => s.board_id !== boardId);
-          this.setLocal(STORAGE_KEYS.STRINGS, [...otherStrings, ...strings]);
-
-          const allStickies = this.getLocal<StickyNote[]>(STORAGE_KEYS.STICKIES, []);
-          const otherStickies = allStickies.filter(s => s.board_id !== boardId);
-          this.setLocal(STORAGE_KEYS.STICKIES, [...otherStickies, ...stickies]);
-
-          return { cards, strings, stickies };
-        } else {
-          if (cardsRes.error) console.warn('Supabase fetch cards error:', cardsRes.error.message);
-          if (stringsRes.error) console.warn('Supabase fetch strings error:', stringsRes.error.message);
-          if (stickiesRes.error) console.warn('Supabase fetch stickies error:', stickiesRes.error.message);
+        }
+        if (!stickiesRes.error && Array.isArray(stickiesRes.data)) {
+          for (const s of stickiesRes.data) {
+            if (!deletedIds.has(s.id)) {
+              const existing = mergedStickiesMap.get(s.id);
+              mergedStickiesMap.set(s.id, existing ? { ...existing, ...s } : s);
+            }
+          }
+        }
+        if (!stringsRes.error && Array.isArray(stringsRes.data)) {
+          for (const str of stringsRes.data) {
+            if (!deletedIds.has(str.id)) {
+              const existing = mergedStringsMap.get(str.id);
+              mergedStringsMap.set(str.id, existing ? { ...existing, ...str } : str);
+            }
+          }
         }
       } catch (err) {
-        console.warn('Supabase loadBoardDetails failed, trying server API:', err);
+        console.warn('Supabase loadBoardDetails error:', err);
       }
     }
 
-    // 2. Try Server API
-    return this.loadBoardDetailsFromServerOrLocal(boardId);
+    // 3. Fetch from Server API
+    try {
+      const res = await fetch(getApiUrl(`/api/boards/${boardId}`));
+      if (res.ok) {
+        const data = await res.json();
+        if (data) {
+          if (Array.isArray(data.cards) && data.cards.length > 0) {
+            for (const c of data.cards) {
+              if (!deletedIds.has(c.id)) {
+                const existing = mergedCardsMap.get(c.id);
+                mergedCardsMap.set(c.id, existing ? { ...existing, ...c } : c);
+              }
+            }
+          }
+          if (Array.isArray(data.stickies) && data.stickies.length > 0) {
+            for (const s of data.stickies) {
+              if (!deletedIds.has(s.id)) {
+                const existing = mergedStickiesMap.get(s.id);
+                mergedStickiesMap.set(s.id, existing ? { ...existing, ...s } : s);
+              }
+            }
+          }
+          if (Array.isArray(data.strings) && data.strings.length > 0) {
+            for (const str of data.strings) {
+              if (!deletedIds.has(str.id)) {
+                const existing = mergedStringsMap.get(str.id);
+                mergedStringsMap.set(str.id, existing ? { ...existing, ...str } : str);
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Server loadBoardDetails error:', err);
+    }
+
+    const finalCards = Array.from(mergedCardsMap.values());
+    const finalStickies = Array.from(mergedStickiesMap.values());
+    const finalStrings = Array.from(mergedStringsMap.values());
+
+    // 4. Update local storage with merged truth
+    const otherCards = allLocalCards.filter(c => c.board_id !== boardId);
+    this.setLocal(STORAGE_KEYS.CARDS, [...otherCards, ...finalCards]);
+
+    const otherStrings = allLocalStrings.filter(s => s.board_id !== boardId);
+    this.setLocal(STORAGE_KEYS.STRINGS, [...otherStrings, ...finalStrings]);
+
+    const otherStickies = allLocalStickies.filter(s => s.board_id !== boardId);
+    this.setLocal(STORAGE_KEYS.STICKIES, [...otherStickies, ...finalStickies]);
+
+    // 5. Ensure server and Supabase have latest items
+    if (finalCards.length > 0 || finalStickies.length > 0 || finalStrings.length > 0) {
+      this.syncItemsToSupabase(boardId, finalCards, finalStrings, finalStickies).catch(() => {});
+    }
+
+    return { cards: finalCards, strings: finalStrings, stickies: finalStickies };
   }
 
   // Create new board (with optional duplicate)
@@ -420,6 +569,7 @@ export class BoardRepository {
 
   // Save/Upsert single card
   static async upsertCard(card: CharacterCard) {
+    this.removeDeletedId(card.id);
     const allCards = this.getLocal<CharacterCard[]>(STORAGE_KEYS.CARDS, []);
     const idx = allCards.findIndex(c => c.id === card.id);
     if (idx >= 0) {
@@ -485,6 +635,7 @@ export class BoardRepository {
 
   // Delete card & connected strings
   static async deleteCard(cardId: string, boardId: string) {
+    this.addDeletedId(cardId);
     const allCards = this.getLocal<CharacterCard[]>(STORAGE_KEYS.CARDS, []);
     this.setLocal(STORAGE_KEYS.CARDS, allCards.filter(c => c.id !== cardId));
 
@@ -521,6 +672,7 @@ export class BoardRepository {
 
   // Upsert string connection
   static async upsertString(str: StringConnection) {
+    this.removeDeletedId(str.id);
     const allStrings = this.getLocal<StringConnection[]>(STORAGE_KEYS.STRINGS, []);
     const idx = allStrings.findIndex(s => s.id === str.id);
     if (idx >= 0) {
@@ -577,6 +729,7 @@ export class BoardRepository {
 
   // Delete string connection
   static async deleteString(stringId: string, boardId?: string) {
+    this.addDeletedId(stringId);
     const allStrings = this.getLocal<StringConnection[]>(STORAGE_KEYS.STRINGS, []);
     const targetString = allStrings.find(s => s.id === stringId);
     const targetBoardId = boardId || targetString?.board_id || 'episode-1-pilot';
@@ -605,6 +758,7 @@ export class BoardRepository {
 
   // Upsert sticky note
   static async upsertSticky(note: StickyNote) {
+    this.removeDeletedId(note.id);
     const allStickies = this.getLocal<StickyNote[]>(STORAGE_KEYS.STICKIES, []);
     const idx = allStickies.findIndex(s => s.id === note.id);
     if (idx >= 0) {
@@ -663,6 +817,7 @@ export class BoardRepository {
 
   // Delete sticky note
   static async deleteSticky(noteId: string, boardId?: string) {
+    this.addDeletedId(noteId);
     const allStickies = this.getLocal<StickyNote[]>(STORAGE_KEYS.STICKIES, []);
     const targetSticky = allStickies.find(s => s.id === noteId);
     const targetBoardId = boardId || targetSticky?.board_id || 'episode-1-pilot';
@@ -691,6 +846,7 @@ export class BoardRepository {
 
   // Clear all cards, stickies, and string connections across all boards
   static async clearAllBoardData() {
+    this.clearDeletedIds();
     // Clear Local Storage
     this.setLocal(STORAGE_KEYS.CARDS, []);
     this.setLocal(STORAGE_KEYS.STRINGS, []);

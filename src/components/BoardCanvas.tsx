@@ -242,6 +242,14 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
   useEffect(() => {
     if (!activeBoardId) return;
 
+    // Instant synchronous hydration from local storage
+    const local = BoardRepository.getLocalItems(activeBoardId);
+    if (local.cards.length > 0 || local.stickies.length > 0 || local.strings.length > 0) {
+      setCards(local.cards);
+      setStrings(local.strings);
+      setStickies(local.stickies);
+    }
+
     let isMounted = true;
     BoardRepository.loadBoardDetails(activeBoardId).then((data) => {
       if (!isMounted) return;
@@ -367,10 +375,10 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
         if (Array.isArray(snapshot.cards) && snapshot.cards.length > 0) {
           setCards(snapshot.cards);
         }
-        if (Array.isArray(snapshot.stickies)) {
+        if (Array.isArray(snapshot.stickies) && snapshot.stickies.length > 0) {
           setStickies(snapshot.stickies);
         }
-        if (Array.isArray(snapshot.strings)) {
+        if (Array.isArray(snapshot.strings) && snapshot.strings.length > 0) {
           setStrings(snapshot.strings);
         }
       }

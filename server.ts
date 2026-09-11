@@ -42,6 +42,7 @@ interface DatabaseSchema {
   strings: any[];
   stickies: any[];
   chat: Record<string, any[]>;
+  supabaseConfig?: { url: string; key: string };
   screeningState: {
     isOpen: boolean;
     episodeNumber: number;
@@ -1485,6 +1486,31 @@ app.delete('/api/boards/:boardId/stickies/:stickyId', (req, res) => {
   recordSyncEvent('sticky:delete', { id: stickyId }, undefined, boardId);
   broadcastToAll({ type: 'sticky:delete', payload: { id: stickyId } });
   res.json({ success: true });
+});
+
+// Supabase Configuration Auto-Sharing
+app.get('/api/supabase/config', (req, res) => {
+  res.json(db.supabaseConfig || { url: '', key: '' });
+});
+
+app.post('/api/supabase/config', (req, res) => {
+  const { url, key } = req.body;
+  if (url && key) {
+    db.supabaseConfig = { url: url.trim(), key: key.trim() };
+    scheduleSaveDatabase();
+  }
+  res.json({ success: true, config: db.supabaseConfig || { url: '', key: '' } });
+});
+
+// Global Board Clear All (Wipe all cards, stickies, and strings)
+app.post('/api/boards/clear-all', (req, res) => {
+  db.cards = [];
+  db.strings = [];
+  db.stickies = [];
+  scheduleSaveDatabase();
+  recordSyncEvent('board:clear_all', {});
+  broadcastToAll({ type: 'board:clear_all', payload: {} });
+  res.json({ success: true, message: 'All board data cleared successfully' });
 });
 
 // Screening Room Chat

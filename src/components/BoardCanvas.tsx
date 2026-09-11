@@ -21,7 +21,7 @@ import { ShareModal } from './ShareModal';
 import { VideoChatPanel } from './VideoChatPanel';
 import { WatchPartyModal } from './WatchPartyModal';
 import { WebRTCProvider } from '../context/WebRTCContext';
-import { getSupabaseCredentials, saveSupabaseCredentials, testSupabaseConnection } from '../lib/supabase';
+import { getSupabaseCredentials, saveSupabaseCredentials, testSupabaseConnection, syncSupabaseWithServer } from '../lib/supabase';
 import { realtimeClient, WatchPartySyncPayload } from '../lib/realtimeClient';
 import { 
   Plus, 
@@ -161,22 +161,24 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
   const [isTestingConn, setIsTestingConn] = useState<boolean>(false);
 
   useEffect(() => {
-    const creds = getSupabaseCredentials();
-    setConnUrl(creds.url);
-    setConnKey(creds.key);
-    if (creds.url && creds.key) {
-      testSupabaseConnection().then((res) => {
-        setSupabaseConnected(res.ok);
-        if (res.ok) {
-          setConnStatusMessage('Live database connected & syncing.');
-        } else {
-          setConnStatusMessage(res.message || 'Connection pending.');
-        }
-      });
-    } else {
-      setSupabaseConnected(false);
-      setConnStatusMessage('Operating in offline/local storage mode.');
-    }
+    syncSupabaseWithServer().then(() => {
+      const creds = getSupabaseCredentials();
+      setConnUrl(creds.url);
+      setConnKey(creds.key);
+      if (creds.url && creds.key) {
+        testSupabaseConnection().then((res) => {
+          setSupabaseConnected(res.ok);
+          if (res.ok) {
+            setConnStatusMessage('Live database connected & syncing.');
+          } else {
+            setConnStatusMessage(res.message || 'Connection pending.');
+          }
+        });
+      } else {
+        setSupabaseConnected(false);
+        setConnStatusMessage('Operating in offline/local storage mode.');
+      }
+    });
 
     // Load accounts list
     UserAccountStore.loadAllAccounts().then((accs) => {
@@ -326,6 +328,12 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
 
     const unsubStickyDelete = realtimeClient.on('sticky:delete', (event) => {
       setStickies((prev) => prev.filter((s) => s.id !== event.id));
+    });
+
+    const unsubClearAll = realtimeClient.on('board:clear_all', () => {
+      setCards([]);
+      setStickies([]);
+      setStrings([]);
     });
 
     const unsubPlaybackAlert = realtimeClient.on('watch:playback', (sync: WatchPartySyncPayload) => {
@@ -525,6 +533,20 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
       unsubApplySnapshot();
     };
   }, [activeBoardId, currentUser, isWatchPartyOpen]);
+
+  const handleClearAllBoardData = async () => {
+    if (
+      window.confirm(
+        'Are you sure you want to wipe all cards, sticky notes, and red yarn strings across all boards? This will clear the database so you can start completely fresh.'
+      )
+    ) {
+      await BoardRepository.clearAllBoardData();
+      setCards([]);
+      setStickies([]);
+      setStrings([]);
+      alert('All board data has been wiped clean from the database.');
+    }
+  };
 
   // Broadcast helper
   const broadcastChange = useCallback(
@@ -1733,6 +1755,27 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
                   placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
                   className="w-full bg-[#100806] border border-[#44281a] rounded-lg px-3 py-2 text-xs font-mono text-[#f5ebd4] focus:outline-none focus:border-[#b91c1c] placeholder:text-[#523e30]"
                 />
+              </div>
+
+              {/* Clear / Wipe All Data Section */}
+              <div className="pt-3 border-t border-[#382216]">
+                <div className="flex items-center justify-between p-3 rounded-lg bg-red-950/20 border border-red-900/40">
+                  <div>
+                    <span className="font-typewriter text-xs font-bold text-red-400 uppercase block">
+                      Clear All Database Data
+                    </span>
+                    <span className="text-[10px] text-[#a08774]">
+                      Wipe all current cards, stickies, and red yarn connections to start fresh.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleClearAllBoardData}
+                    className="bg-red-900/80 hover:bg-red-800 text-white font-typewriter text-xs uppercase px-3 py-1.5 rounded border border-red-600 transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    Clear All Data
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center justify-between pt-3 border-t border-[#382216]">

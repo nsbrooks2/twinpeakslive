@@ -19,7 +19,46 @@ export function saveSupabaseCredentials(url: string, key: string) {
   if (typeof window !== 'undefined') {
     localStorage.setItem('tp_supabase_url', url.trim());
     localStorage.setItem('tp_supabase_key', key.trim());
+
+    // Share credentials with server so all connected devices auto-configure Supabase!
+    fetch('/api/supabase/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url.trim(), key: key.trim() }),
+    }).catch(() => {});
   }
+}
+
+export async function syncSupabaseWithServer(): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  try {
+    const localUrl = localStorage.getItem('tp_supabase_url');
+    const localKey = localStorage.getItem('tp_supabase_key');
+
+    // If local has config, sync to server
+    if (localUrl && localKey) {
+      fetch('/api/supabase/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: localUrl.trim(), key: localKey.trim() }),
+      }).catch(() => {});
+      return true;
+    }
+
+    // Otherwise check if server has config
+    const res = await fetch('/api/supabase/config');
+    if (res.ok) {
+      const config = await res.json();
+      if (config.url && config.key) {
+        localStorage.setItem('tp_supabase_url', config.url);
+        localStorage.setItem('tp_supabase_key', config.key);
+        return true;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not sync Supabase credentials with server:', err);
+  }
+  return false;
 }
 
 let supabaseInstance: SupabaseClient | null = null;

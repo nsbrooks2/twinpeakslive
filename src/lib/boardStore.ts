@@ -116,7 +116,46 @@ export class BoardRepository {
     strings: StringConnection[];
     stickies: StickyNote[];
   }> {
-    // 1. Try Server API
+    // 1. Try Supabase first if connected
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const [cardsRes, stringsRes, stickiesRes] = await Promise.all([
+          supabase.from('character_cards').select('*').eq('board_id', boardId),
+          supabase.from('string_connections').select('*').eq('board_id', boardId),
+          supabase.from('sticky_notes').select('*').eq('board_id', boardId),
+        ]);
+
+        if (!cardsRes.error && !stringsRes.error && !stickiesRes.error) {
+          const cards = cardsRes.data || [];
+          const strings = stringsRes.data || [];
+          const stickies = stickiesRes.data || [];
+
+          // Cache in local storage
+          const allCards = this.getLocal<CharacterCard[]>(STORAGE_KEYS.CARDS, []);
+          const otherCards = allCards.filter(c => c.board_id !== boardId);
+          this.setLocal(STORAGE_KEYS.CARDS, [...otherCards, ...cards]);
+
+          const allStrings = this.getLocal<StringConnection[]>(STORAGE_KEYS.STRINGS, []);
+          const otherStrings = allStrings.filter(s => s.board_id !== boardId);
+          this.setLocal(STORAGE_KEYS.STRINGS, [...otherStrings, ...strings]);
+
+          const allStickies = this.getLocal<StickyNote[]>(STORAGE_KEYS.STICKIES, []);
+          const otherStickies = allStickies.filter(s => s.board_id !== boardId);
+          this.setLocal(STORAGE_KEYS.STICKIES, [...otherStickies, ...stickies]);
+
+          return { cards, strings, stickies };
+        } else {
+          if (cardsRes.error) console.warn('Supabase fetch cards error:', cardsRes.error.message);
+          if (stringsRes.error) console.warn('Supabase fetch strings error:', stringsRes.error.message);
+          if (stickiesRes.error) console.warn('Supabase fetch stickies error:', stickiesRes.error.message);
+        }
+      } catch (err) {
+        console.warn('Supabase loadBoardDetails failed, trying server API:', err);
+      }
+    }
+
+    // 2. Try Server API
     try {
       const res = await fetch(getApiUrl(`/api/boards/${boardId}`));
       if (res.ok) {
@@ -144,28 +183,6 @@ export class BoardRepository {
       }
     } catch (err) {
       console.warn('Server loadBoardDetails failed, falling back:', err);
-    }
-
-    // 2. Try Supabase
-    const supabase = getSupabase();
-    if (supabase) {
-      try {
-        const [cardsRes, stringsRes, stickiesRes] = await Promise.all([
-          supabase.from('character_cards').select('*').eq('board_id', boardId),
-          supabase.from('string_connections').select('*').eq('board_id', boardId),
-          supabase.from('sticky_notes').select('*').eq('board_id', boardId),
-        ]);
-
-        if (!cardsRes.error && !stringsRes.error && !stickiesRes.error) {
-          const cards = cardsRes.data || [];
-          const strings = stringsRes.data || [];
-          const stickies = stickiesRes.data || [];
-
-          return { cards, strings, stickies };
-        }
-      } catch (err) {
-        console.warn('Supabase loadBoardDetails failed, using local storage:', err);
-      }
     }
 
     // 3. Local fallback
@@ -592,6 +609,33 @@ export class BoardRepository {
         if (error) console.warn('Supabase deleteSticky error:', error.message);
       } catch (err) {
         console.warn('Error deleting sticky note from Supabase:', err);
+      }
+    }
+  }
+
+  // Clear all cards, stickies, and string connections across all boards
+  static async clearAllBoardData() {
+    // Clear Local Storage
+    this.setLocal(STORAGE_KEYS.CARDS, []);
+    this.setLocal(STORAGE_KEYS.STRINGS, []);
+    this.setLocal(STORAGE_KEYS.STICKIES, []);
+
+    // Clear Server API
+    try {
+      await fetch('/api/boards/clear-all', { method: 'POST' });
+    } catch {
+      // ignore
+    }
+
+    // Clear Supabase database tables if connected
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        await supabase.from('character_cards').delete().neq('id', '___none___');
+        await supabase.from('string_connections').delete().neq('id', '___none___');
+        await supabase.from('sticky_notes').delete().neq('id', '___none___');
+      } catch (err) {
+        console.warn('Error clearing Supabase tables:', err);
       }
     }
   }

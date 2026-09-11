@@ -60,6 +60,17 @@ export const CharacterCardItem: React.FC<CardProps> = ({
     onDragStart(card.id, e.clientX, e.clientY);
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button, input, textarea, select, option')) {
+      return;
+    }
+    if (e.touches.length === 1) {
+      e.stopPropagation();
+      onDragStart(card.id, e.touches[0].clientX, e.touches[0].clientY);
+    }
+  };
+
   const cycleStatus = () => {
     const statuses: PinStatus[] = ['Unknown', 'Suspect', 'Cleared', 'Victim'];
     const nextIdx = (statuses.indexOf(card.status) + 1) % statuses.length;
@@ -70,11 +81,13 @@ export const CharacterCardItem: React.FC<CardProps> = ({
     <div
       id={`card-${card.id}`}
       onMouseDown={handleMouseDown}
+      onTouchStart={handleTouchStart}
       style={{
         transform: `translate3d(${card.x}px, ${card.y}px, 0)`,
         zIndex: card.z_index || 10,
+        touchAction: 'none',
       }}
-      className={`absolute w-72 rounded-lg bg-[#f0e6d6] text-[#1c130e] p-4 shadow-[0_8px_24px_rgba(0,0,0,0.65)] select-none border transition-shadow cursor-grab active:cursor-grabbing ${
+      className={`absolute w-72 rounded-lg bg-[#f0e6d6] text-[#1c130e] p-4 shadow-[0_8px_24px_rgba(0,0,0,0.65)] select-none border cursor-grab active:cursor-grabbing touch-none transition-transform duration-75 ${
         isSelectedForString
           ? 'ring-4 ring-red-600 shadow-[0_0_20px_rgba(220,38,38,0.7)] border-red-600'
           : 'border-[#c7b59e] hover:shadow-[0_12px_28px_rgba(0,0,0,0.8)]'

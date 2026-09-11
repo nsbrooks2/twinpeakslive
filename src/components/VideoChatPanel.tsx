@@ -61,9 +61,11 @@ export const VideoChatPanel: React.FC<VideoProps> = () => {
   } = useWebRTC();
 
   const [isMinimized, setIsMinimized] = useState(false);
+  const [audioBlocked, setAudioBlocked] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Play chime on incoming ring
   useEffect(() => {
@@ -73,6 +75,31 @@ export const VideoChatPanel: React.FC<VideoProps> = () => {
       return () => clearInterval(interval);
     }
   }, [isRinging]);
+
+  // Ensure remote audio stream is playing even if video container is hidden or muted
+  useEffect(() => {
+    if (remoteAudioRef.current && remoteStream) {
+      if (remoteAudioRef.current.srcObject !== remoteStream) {
+        remoteAudioRef.current.srcObject = remoteStream;
+      }
+      remoteAudioRef.current
+        .play()
+        .then(() => setAudioBlocked(false))
+        .catch((err) => {
+          console.warn('[VideoChat] Audio autoplay blocked by browser policy:', err);
+          setAudioBlocked(true);
+        });
+    }
+  }, [remoteStream, inCall]);
+
+  const unlockAudio = () => {
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current
+        .play()
+        .then(() => setAudioBlocked(false))
+        .catch(() => {});
+    }
+  };
 
   // Callback refs ensure the stream is attached IMMEDIATELY when the element mounts or unminimizes
   const handleRemoteVideoRef = useCallback(
@@ -182,6 +209,9 @@ export const VideoChatPanel: React.FC<VideoProps> = () => {
   if (isMinimized) {
     return (
       <div className="fixed bottom-3 right-3 sm:bottom-4 sm:right-4 z-40 bg-[#1c120e] border-2 border-[#5a3928] rounded-xl p-2.5 sm:p-3 shadow-2xl flex items-center gap-2.5 sm:gap-3 animate-slideUp max-w-[calc(100vw-24px)]">
+        {/* Hidden persistent remote audio tag */}
+        <audio ref={remoteAudioRef} autoPlay playsInline />
+
         <div className="relative w-12 h-12 sm:w-14 sm:h-14 bg-black rounded-lg overflow-hidden border border-[#3e2518] flex items-center justify-center flex-shrink-0">
           <video
             ref={handleRemoteVideoRef}
@@ -202,6 +232,14 @@ export const VideoChatPanel: React.FC<VideoProps> = () => {
           <p className="font-typewriter text-[10px] text-[#a08774] truncate">
             {connectionState === 'connected' ? `Live with ${partnerName}` : 'Connecting...'}
           </p>
+          {audioBlocked && (
+            <button
+              onClick={unlockAudio}
+              className="text-[10px] text-amber-400 underline font-typewriter cursor-pointer hover:text-amber-200"
+            >
+              Tap to unmute partner audio
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
@@ -226,6 +264,9 @@ export const VideoChatPanel: React.FC<VideoProps> = () => {
   // Full Sheriff CRT Monitor Bezel Window
   return (
     <div className="fixed bottom-3 right-3 sm:bottom-5 sm:right-5 z-40 w-[calc(100vw-24px)] max-w-sm sm:w-96 bg-[#1a0f0b] border-4 border-[#3e2216] rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.85)] overflow-hidden animate-scaleIn">
+      {/* Hidden persistent remote audio tag */}
+      <audio ref={remoteAudioRef} autoPlay playsInline />
+
       {/* 90s TV Monitor Header */}
       <div className="bg-[#2a170f] border-b border-[#44281a] px-3 py-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -256,8 +297,21 @@ export const VideoChatPanel: React.FC<VideoProps> = () => {
         </div>
       </div>
 
+      {/* Unmute alert if browser blocked audio */}
+      {audioBlocked && (
+        <div
+          onClick={unlockAudio}
+          className="bg-amber-950/90 border-b border-amber-700 px-3 py-2 text-center text-amber-200 text-xs font-typewriter cursor-pointer hover:bg-amber-900 transition-colors"
+        >
+          🔊 Browser muted incoming audio. <strong>Tap here to unmute</strong>
+        </div>
+      )}
+
       {/* Screen area with CRT Scanlines */}
       <div className="relative aspect-video bg-black overflow-hidden group">
+        {/* Dedicated audio element ensuring remote audio track always outputs */}
+        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+
         {/* Remote video stream (Partner) */}
         <video
           ref={handleRemoteVideoRef}
@@ -265,6 +319,17 @@ export const VideoChatPanel: React.FC<VideoProps> = () => {
           playsInline
           className="w-full h-full object-cover"
         />
+
+        {/* Unblock audio tap prompt if browser restricted autoplay */}
+        {audioBlocked && (
+          <button
+            onClick={unlockAudio}
+            className="absolute top-2 left-2 z-30 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-bold font-typewriter px-2.5 py-1 rounded shadow-lg animate-pulse cursor-pointer flex items-center gap-1.5"
+          >
+            <Mic className="w-3.5 h-3.5" />
+            <span>Tap to Unmute Audio</span>
+          </button>
+        )}
 
         {/* Fallback placeholder if partner video not yet flowing */}
         {!remoteStream && (

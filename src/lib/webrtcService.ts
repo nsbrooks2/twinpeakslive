@@ -10,8 +10,24 @@ const RTC_CONFIG: RTCConfiguration = {
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:global.stun.twilio.com:3478' },
-    { urls: 'stun:stun.services.mozilla.com' },
+    { urls: 'stun:openrelay.metered.ca:80' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelay',
+      credential: 'openrelay',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelay',
+      credential: 'openrelay',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelay',
+      credential: 'openrelay',
+    },
   ],
+  iceCandidatePoolSize: 10,
 };
 
 export class WebRTCManager {
@@ -24,6 +40,7 @@ export class WebRTCManager {
   private localBroadcast: BroadcastChannel | null = null;
   private unsubscribeRealtime: (() => void) | null = null;
   public pendingOffer: { from: string; sdp: RTCSessionDescriptionInit } | null = null;
+  private pendingIceCandidates: RTCIceCandidateInit[] = [];
 
   public onRemoteStreamCallback: ((stream: MediaStream | null) => void) | null = null;
   public onConnectionStateChangeCallback: ((state: RTCPeerConnectionState) => void) | null = null;
@@ -79,15 +96,29 @@ export class WebRTCManager {
   }
 
   public async startLocalMedia(video = true, audio = true): Promise<MediaStream> {
-    if (this.localStream) {
+    if (this.localStream && this.localStream.active) {
       return this.localStream;
     }
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: video ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } } : false,
-      audio: audio,
-    });
-    this.localStream = stream;
-    return stream;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: video ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } } : false,
+        audio: audio,
+      });
+      this.localStream = stream;
+      return stream;
+    } catch (err) {
+      console.warn('[WebRTC] Full video+audio getUserMedia failed, retrying audio-only fallback:', err);
+      if (video) {
+        // Fallback to audio only
+        const audioStream = await navigator.mediaDevices.getUserMedia({
+          video: false,
+          audio: true,
+        });
+        this.localStream = audioStream;
+        return audioStream;
+      }
+      throw err;
+    }
   }
 
   public getLocalStream() {
@@ -98,9 +129,11 @@ export class WebRTCManager {
     return this.remoteStream;
   }
 
-  private createPeerConnection() {
+  private createPeerConnection(): RTCPeerConnection {
     if (this.pc) {
-      this.pc.close();
+      try {
+        this.pc.close();
+      } catch {}
     }
 
     this.pc = new RTCPeerConnection(RTC_CONFIG);
@@ -115,9 +148,24 @@ export class WebRTCManager {
     }
 
     this.pc.ontrack = (event) => {
-      event.streams[0]?.getTracks().forEach((track) => {
-        this.remoteStream?.addTrack(track);
-      });
+      console.log('[WebRTC] ontrack received:', event.track.kind);
+      if (event.streams && event.streams[0]) {
+        this.remoteStream = event.streams[0];
+      } else {
+        if (!this.remoteStream) {
+          this.remoteStream = new MediaStream();
+        }
+        if (!this.remoteStream.getTracks().some((t) => t.id === event.track.id)) {
+          this.remoteStream.addTrack(event.track);
+        }
+      }
+
+      event.track.onunmute = () => {
+        if (this.onRemoteStreamCallback) {
+          this.onRemoteStreamCallback(this.remoteStream);
+        }
+      };
+
       if (this.onRemoteStreamCallback) {
         this.onRemoteStreamCallback(this.remoteStream);
       }
@@ -134,7 +182,12 @@ export class WebRTCManager {
       }
     };
 
+    this.pc.oniceconnectionstatechange = () => {
+      console.log('[WebRTC] ICE Connection State:', this.pc?.iceConnectionState);
+    };
+
     this.pc.onconnectionstatechange = () => {
+      console.log('[WebRTC] Peer Connection State:', this.pc?.connectionState);
       if (this.pc && this.onConnectionStateChangeCallback) {
         this.onConnectionStateChangeCallback(this.pc.connectionState);
       }
@@ -143,11 +196,27 @@ export class WebRTCManager {
     return this.pc;
   }
 
+  private async flushPendingCandidates() {
+    if (!this.pc || !this.pc.remoteDescription) return;
+    const candidates = [...this.pendingIceCandidates];
+    this.pendingIceCandidates = [];
+    for (const cand of candidates) {
+      try {
+        await this.pc.addIceCandidate(new RTCIceCandidate(cand));
+      } catch (err) {
+        console.warn('[WebRTC] Error adding buffered ICE candidate:', err);
+      }
+    }
+  }
+
   public async initiateCall() {
     await this.startLocalMedia();
     const pc = this.createPeerConnection();
 
-    const offer = await pc.createOffer();
+    const offer = await pc.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true,
+    });
     await pc.setLocalDescription(offer);
 
     this.sendSignal({
@@ -163,6 +232,8 @@ export class WebRTCManager {
     const pc = this.createPeerConnection();
 
     await pc.setRemoteDescription(new RTCSessionDescription(offerSdp));
+    await this.flushPendingCandidates();
+
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
@@ -185,10 +256,6 @@ export class WebRTCManager {
 
   private async handleSignal(signal: WebRTCSignalPayload) {
     if (signal.from === this.currentUserId) return;
-    // Allow signals across boards so detectives can call each other from any screen
-    if (signal.board_id && this.boardId && signal.board_id !== this.boardId) {
-      console.log('[WebRTC] Signal received from different board, bridging call:', signal.board_id);
-    }
 
     switch (signal.type) {
       case 'offer':
@@ -202,16 +269,27 @@ export class WebRTCManager {
 
       case 'answer':
         if (signal.sdp && this.pc) {
-          await this.pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+          try {
+            await this.pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+            await this.flushPendingCandidates();
+          } catch (err) {
+            console.warn('[WebRTC] Error setting remote answer SDP:', err);
+          }
         }
         break;
 
       case 'candidate':
-        if (signal.candidate && this.pc) {
-          try {
-            await this.pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
-          } catch (err) {
-            console.warn('Could not add ICE candidate:', err);
+        if (signal.candidate) {
+          if (this.pc && this.pc.remoteDescription) {
+            try {
+              await this.pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            } catch (err) {
+              console.warn('[WebRTC] Could not add live ICE candidate, buffering:', err);
+              this.pendingIceCandidates.push(signal.candidate);
+            }
+          } else {
+            // Buffer candidate until remote description is set
+            this.pendingIceCandidates.push(signal.candidate);
           }
         }
         break;
@@ -257,10 +335,14 @@ export class WebRTCManager {
     }
 
     if (this.pc) {
-      this.pc.close();
+      try {
+        this.pc.close();
+      } catch {}
       this.pc = null;
     }
 
+    this.pendingIceCandidates = [];
+    this.pendingOffer = null;
     this.remoteStream = null;
     if (this.onRemoteStreamCallback) {
       this.onRemoteStreamCallback(null);

@@ -93,7 +93,8 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
   }, []);
 
   // String Creation Mode
-  const [stringSourceCardId, setStringSourceCardId] = useState<string | null>(null);
+  const [stringSourceId, setStringSourceId] = useState<string | null>(null);
+  const lastBroadcastRef = useRef<number>(0);
 
   // Filtering & search
   const [searchQuery, setSearchQuery] = useState('');
@@ -257,6 +258,7 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
     });
 
     const unsubCardMove = realtimeClient.on('card:move', (event) => {
+      if (draggingItemRef.current?.id === event.id) return;
       setCards((prev) =>
         prev.map((c) => (c.id === event.id ? { ...c, x: event.x, y: event.y } : c))
       );
@@ -302,6 +304,7 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
     });
 
     const unsubStickyMove = realtimeClient.on('sticky:move', (event) => {
+      if (draggingItemRef.current?.id === event.id) return;
       setStickies((prev) =>
         prev.map((s) => (s.id === event.id ? { ...s, x: event.x, y: event.y } : s))
       );
@@ -621,6 +624,12 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
           prev.map((s) => (s.id === id ? { ...s, x: nextX, y: nextY } : s))
         );
       }
+
+      const now = Date.now();
+      if (now - lastBroadcastRef.current > 40) {
+        lastBroadcastRef.current = now;
+        broadcastChange({ type: `${type}:move`, id, x: nextX, y: nextY, boardId: activeBoardId });
+      }
     }
   };
 
@@ -726,6 +735,12 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
             prev.map((s) => (s.id === id ? { ...s, x: nextX, y: nextY } : s))
           );
         }
+
+        const now = Date.now();
+        if (now - lastBroadcastRef.current > 40) {
+          lastBroadcastRef.current = now;
+          broadcastChange({ type: `${type}:move`, id, x: nextX, y: nextY, boardId: activeBoardId });
+        }
       }
     }
   };
@@ -751,29 +766,29 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
   };
 
   // String connection logic
-  const handleSelectCardForString = (cardId: string) => {
-    if (!stringSourceCardId) {
-      setStringSourceCardId(cardId);
-    } else if (stringSourceCardId === cardId) {
-      setStringSourceCardId(null); // Deselect if clicking the same card
+  const handleSelectForString = (itemId: string) => {
+    if (!stringSourceId) {
+      setStringSourceId(itemId);
+    } else if (stringSourceId === itemId) {
+      setStringSourceId(null); // Deselect if clicking same item
     } else {
-      // Connect source to this card
+      // Connect source to this item
       const existing = strings.find(
         (s) =>
-          (s.source_id === stringSourceCardId && s.target_id === cardId) ||
-          (s.source_id === cardId && s.target_id === stringSourceCardId)
+          (s.source_id === stringSourceId && s.target_id === itemId) ||
+          (s.source_id === itemId && s.target_id === stringSourceId)
       );
 
       if (existing) {
-        setStringSourceCardId(null);
+        setStringSourceId(null);
         return;
       }
 
       const newString: StringConnection = {
         id: `str-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         board_id: activeBoardId,
-        source_id: stringSourceCardId,
-        target_id: cardId,
+        source_id: stringSourceId,
+        target_id: itemId,
         label: 'Connected',
         created_at: new Date().toISOString(),
       };
@@ -781,7 +796,7 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
       setStrings((prev) => [...prev, newString]);
       BoardRepository.upsertString(newString);
       broadcastChange({ type: 'string:upsert', string: newString });
-      setStringSourceCardId(null);
+      setStringSourceId(null);
     }
   };
 
@@ -876,6 +891,7 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
 
   const handleDeleteSticky = (id: string) => {
     setStickies((prev) => prev.filter((s) => s.id !== id));
+    setStrings((prev) => prev.filter((s) => s.source_id !== id && s.target_id !== id));
     BoardRepository.deleteSticky(id);
     broadcastChange({ type: 'sticky:delete', id });
   };
@@ -944,8 +960,8 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
     return matchesSearch && matchesStatus;
   });
 
-  // Source card for active string connecting
-  const activeSourceCard = cards.find((c) => c.id === stringSourceCardId);
+  // Source item for active string connecting
+  const activeSourceItem = cards.find((c) => c.id === stringSourceId) || stickies.find((s) => s.id === stringSourceId);
 
   // Partner user currently connected or default name
   const partnerUser = presenceUsers.find((p) => p.email !== currentUser.email);
@@ -1005,12 +1021,12 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
         </div>
 
         {/* Center: String Connection Notification if active */}
-        {stringSourceCardId && (
+        {stringSourceId && (
           <div className="hidden lg:flex items-center gap-2 bg-red-950 border border-red-700 text-red-200 px-3 py-1 rounded-full text-xs font-typewriter animate-pulse flex-shrink-0">
             <Link2 className="w-3.5 h-3.5 text-red-400" />
-            <span>Tie string from "{activeSourceCard?.name}"</span>
+            <span>Tie red yarn string...</span>
             <button
-              onClick={() => setStringSourceCardId(null)}
+              onClick={() => setStringSourceId(null)}
               className="ml-2 underline text-white hover:text-red-300 cursor-pointer"
             >
               Cancel
@@ -1136,16 +1152,17 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
           {/* Quick string mode trigger */}
           <button
             onClick={() => {
-              if (cards.length >= 2) {
-                setStringSourceCardId(cards[0].id);
+              const firstItem = cards[0]?.id || stickies[0]?.id;
+              if (firstItem) {
+                setStringSourceId(firstItem);
               }
             }}
             className={`px-3 py-1.5 min-h-[38px] rounded-lg flex items-center gap-1.5 border transition-colors cursor-pointer shadow-sm ${
-              stringSourceCardId
+              stringSourceId
                 ? 'bg-red-950 text-red-200 border-red-700'
                 : 'bg-[#2a1b12] hover:bg-[#3d271a] text-[#f5ebd4] border-[#5a3928]'
             }`}
-            title="Connect character cards with red yarn"
+            title="Connect character cards and notes with red yarn"
           >
             <Link2 className="w-3.5 h-3.5 text-red-500" />
             <span>Red Yarn</span>
@@ -1282,8 +1299,9 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
           <RedStringCanvas
             strings={strings}
             cards={cards}
-            selectedSourceCardId={stringSourceCardId}
-            onSelectTargetCard={handleSelectCardForString}
+            stickies={stickies}
+            selectedSourceCardId={stringSourceId}
+            onSelectTargetCard={handleSelectForString}
             onUpdateString={handleUpdateString}
             onDeleteString={handleDeleteString}
             canvasWidth={CANVAS_WIDTH}
@@ -1295,8 +1313,8 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
             <CharacterCardItem
               key={card.id}
               card={card}
-              isSelectedForString={stringSourceCardId === card.id}
-              onSelectForString={handleSelectCardForString}
+              isSelectedForString={stringSourceId === card.id}
+              onSelectForString={handleSelectForString}
               onUpdate={handleUpdateCard}
               onDelete={handleDeleteCard}
               onDragStart={handleCardDragStart}
@@ -1354,6 +1372,8 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
             <StickyNoteItem
               key={sticky.id}
               note={sticky}
+              isSelectedForString={stringSourceId === sticky.id}
+              onSelectForString={handleSelectForString}
               onUpdate={handleUpdateSticky}
               onDelete={handleDeleteSticky}
               onDragStart={handleStickyDragStart}

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { CharacterCard, StringConnection } from '../types';
-import { Trash2, Edit2, Check, X } from 'lucide-react';
+import { CharacterCard, StickyNote, StringConnection } from '../types';
+import { Trash2, Edit2, Check } from 'lucide-react';
 
 interface StringCanvasProps {
   strings: StringConnection[];
   cards: CharacterCard[];
+  stickies?: StickyNote[];
   selectedSourceCardId: string | null;
   onSelectTargetCard: (targetCardId: string) => void;
   onUpdateString: (str: StringConnection) => void;
@@ -16,8 +17,7 @@ interface StringCanvasProps {
 export const RedStringCanvas: React.FC<StringCanvasProps> = ({
   strings,
   cards,
-  selectedSourceCardId,
-  onSelectTargetCard,
+  stickies = [],
   onUpdateString,
   onDeleteString,
   canvasWidth,
@@ -26,13 +26,18 @@ export const RedStringCanvas: React.FC<StringCanvasProps> = ({
   const [editingStringId, setEditingStringId] = useState<string | null>(null);
   const [tempLabel, setTempLabel] = useState('');
 
-  // Map cards by ID for instant O(1) coordinate lookup
-  const cardMap = new Map<string, CharacterCard>();
-  cards.forEach((c) => cardMap.set(c.id, c));
+  // Map anchors for both character cards and sticky notes
+  const anchorMap = new Map<string, { x: number; y: number }>();
+  
+  // Card anchor: Center pin at top
+  cards.forEach((c) => {
+    anchorMap.set(c.id, { x: c.x + 144, y: c.y + 12 });
+  });
 
-  const CARD_WIDTH = 288;
-  const PIN_OFFSET_X = CARD_WIDTH / 2;
-  const PIN_OFFSET_Y = 12;
+  // Sticky note anchor: Tape center pin at top
+  stickies.forEach((s) => {
+    anchorMap.set(s.id, { x: s.x + 120, y: s.y + 6 });
+  });
 
   const startEditLabel = (str: StringConnection) => {
     setEditingStringId(str.id);
@@ -61,14 +66,14 @@ export const RedStringCanvas: React.FC<StringCanvasProps> = ({
         </defs>
 
         {strings.map((str) => {
-          const source = cardMap.get(str.source_id);
-          const target = cardMap.get(str.target_id);
+          const source = anchorMap.get(str.source_id);
+          const target = anchorMap.get(str.target_id);
           if (!source || !target) return null;
 
-          const x1 = source.x + PIN_OFFSET_X;
-          const y1 = source.y + PIN_OFFSET_Y;
-          const x2 = target.x + PIN_OFFSET_X;
-          const y2 = target.y + PIN_OFFSET_Y;
+          const x1 = source.x;
+          const y1 = source.y;
+          const x2 = target.x;
+          const y2 = target.y;
 
           // Natural catenary / gravitational sag for physical wool yarn
           const dx = x2 - x1;

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { EpisodeBoard } from '../types';
 import { EPISODE_STREAMS } from '../seedData';
-import { Plus, Copy, FolderPlus, Clock, Film, CheckCircle2, ChevronRight, X, ArrowRightLeft } from 'lucide-react';
+import { Plus, Copy, FolderPlus, Clock, Film, CheckCircle2, ChevronRight, X, ArrowRightLeft, RotateCcw } from 'lucide-react';
+import { BoardRepository } from '../lib/boardStore';
 
 interface EpisodeModalProps {
   isOpen: boolean;
@@ -95,11 +96,22 @@ export const EpisodeSelectorModal: React.FC<EpisodeModalProps> = ({
         <div className="p-6">
           {!isCreating ? (
             <div>
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <span className="font-typewriter text-xs text-[#b89f89] uppercase tracking-wider">
                   Recorded Case Boards ({boards.length})
                 </span>
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      BoardRepository.resetToAllDefaultBoards();
+                      window.location.reload();
+                    }}
+                    className="bg-[#1a281e] hover:bg-[#25392b] text-[#86efac] px-2.5 py-1.5 rounded text-xs font-typewriter uppercase tracking-wider flex items-center gap-1.5 transition-all border border-[#2e5238] hover:border-[#4ade80] cursor-pointer shadow"
+                    title="Force sync & restore all Season 1 episode boards (Episodes 1 to 8)"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Sync Episodes 1-8</span>
+                  </button>
                   {onOpenCarryOver && boards.length > 1 && (
                     <button
                       onClick={() => {

@@ -35,6 +35,42 @@ const STORAGE_KEYS = {
   DELETED_IDS: 'tp_caseboard_deleted_ids_v1',
 };
 
+const CANONICAL_BOARDS: EpisodeBoard[] = [
+  INITIAL_PILOT_BOARD, 
+  INITIAL_EPISODE_2_BOARD, 
+  INITIAL_EPISODE_3_BOARD, 
+  INITIAL_EPISODE_4_BOARD, 
+  INITIAL_EPISODE_5_BOARD, 
+  INITIAL_EPISODE_6_BOARD,
+  INITIAL_EPISODE_7_BOARD,
+  INITIAL_EPISODE_8_BOARD
+];
+
+export function mergeCanonicalBoards(loadedBoards: EpisodeBoard[] = []): EpisodeBoard[] {
+  const map = new Map<string, EpisodeBoard>();
+  
+  if (Array.isArray(loadedBoards)) {
+    for (const b of loadedBoards) {
+      if (b && b.id) {
+        map.set(b.id, b);
+      }
+    }
+  }
+
+  for (const canon of CANONICAL_BOARDS) {
+    const exists = Array.from(map.values()).some(
+      b => b.id === canon.id || b.episode_number === canon.episode_number
+    );
+    if (!exists) {
+      map.set(canon.id, canon);
+    }
+  }
+
+  const result = Array.from(map.values());
+  result.sort((a, b) => (a.episode_number || 99) - (b.episode_number || 99));
+  return result;
+}
+
 export class BoardRepository {
   static getDeletedIds(): Set<string> {
     if (typeof window === 'undefined') return new Set();
@@ -92,87 +128,60 @@ export class BoardRepository {
     localStorage.setItem(key, JSON.stringify(data));
   }
 
+  // Reset/restore canonical episode boards (1 to 8)
+  static resetToAllDefaultBoards(): EpisodeBoard[] {
+    const current = this.getLocal<EpisodeBoard[]>(STORAGE_KEYS.BOARDS, []);
+    const merged = mergeCanonicalBoards(current);
+    this.setLocal(STORAGE_KEYS.BOARDS, merged);
+    return merged;
+  }
+
   // Load all boards (from Server REST API -> Supabase -> LocalStorage)
   static async loadBoards(): Promise<EpisodeBoard[]> {
+    let rawBoards: EpisodeBoard[] = [];
+
     // 1. Try Server API (authoritative disk persistence)
     try {
       const res = await fetch(getApiUrl('/api/boards'));
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
-          this.setLocal(STORAGE_KEYS.BOARDS, data);
-          return data;
+          rawBoards = data;
         }
       }
     } catch (err) {
       console.warn('Server loadBoards failed, falling back:', err);
     }
 
-    // 2. Try Supabase
-    const supabase = getSupabase();
-    if (supabase) {
-      try {
-        const { data, error } = await supabase
-          .from('boards')
-          .select('*')
-          .order('episode_number', { ascending: true });
-        
-        if (!error && data && data.length > 0) {
-          this.setLocal(STORAGE_KEYS.BOARDS, data);
-          return data;
+    // 2. Try Supabase if server empty
+    if (rawBoards.length === 0) {
+      const supabase = getSupabase();
+      if (supabase) {
+        try {
+          const { data, error } = await supabase
+            .from('boards')
+            .select('*')
+            .order('episode_number', { ascending: true });
+          
+          if (!error && data && data.length > 0) {
+            rawBoards = data;
+          }
+        } catch (err) {
+          console.warn('Supabase loadBoards failed, falling back to local:', err);
         }
-      } catch (err) {
-        console.warn('Supabase loadBoards failed, falling back to local:', err);
       }
     }
 
-    // 3. Local storage check
-    let local = this.getLocal<EpisodeBoard[]>(STORAGE_KEYS.BOARDS, []);
-    if (local.length === 0) {
-      const seeded = [
-        INITIAL_PILOT_BOARD, 
-        INITIAL_EPISODE_2_BOARD, 
-        INITIAL_EPISODE_3_BOARD, 
-        INITIAL_EPISODE_4_BOARD, 
-        INITIAL_EPISODE_5_BOARD, 
-        INITIAL_EPISODE_6_BOARD,
-        INITIAL_EPISODE_7_BOARD,
-        INITIAL_EPISODE_8_BOARD
-      ];
-      this.setLocal(STORAGE_KEYS.BOARDS, seeded);
-      return seeded;
+    // 3. Try Local storage if still empty
+    if (rawBoards.length === 0) {
+      rawBoards = this.getLocal<EpisodeBoard[]>(STORAGE_KEYS.BOARDS, []);
     }
 
-    if (!local.some(b => b.episode_number === 2 || b.id === INITIAL_EPISODE_2_BOARD.id)) {
-      local = [...local, INITIAL_EPISODE_2_BOARD];
-      this.setLocal(STORAGE_KEYS.BOARDS, local);
-    }
-    if (!local.some(b => b.episode_number === 3 || b.id === INITIAL_EPISODE_3_BOARD.id)) {
-      local = [...local, INITIAL_EPISODE_3_BOARD];
-      this.setLocal(STORAGE_KEYS.BOARDS, local);
-    }
-    if (!local.some(b => b.episode_number === 4 || b.id === INITIAL_EPISODE_4_BOARD.id)) {
-      local = [...local, INITIAL_EPISODE_4_BOARD];
-      this.setLocal(STORAGE_KEYS.BOARDS, local);
-    }
-    if (!local.some(b => b.episode_number === 5 || b.id === INITIAL_EPISODE_5_BOARD.id)) {
-      local = [...local, INITIAL_EPISODE_5_BOARD];
-      this.setLocal(STORAGE_KEYS.BOARDS, local);
-    }
-    if (!local.some(b => b.episode_number === 6 || b.id === INITIAL_EPISODE_6_BOARD.id)) {
-      local = [...local, INITIAL_EPISODE_6_BOARD];
-      this.setLocal(STORAGE_KEYS.BOARDS, local);
-    }
-    if (!local.some(b => b.episode_number === 7 || b.id === INITIAL_EPISODE_7_BOARD.id)) {
-      local = [...local, INITIAL_EPISODE_7_BOARD];
-      this.setLocal(STORAGE_KEYS.BOARDS, local);
-    }
-    if (!local.some(b => b.episode_number === 8 || b.id === INITIAL_EPISODE_8_BOARD.id)) {
-      local = [...local, INITIAL_EPISODE_8_BOARD];
-      this.setLocal(STORAGE_KEYS.BOARDS, local);
-    }
+    // 4. MERGE canonical boards (Episodes 1-8) so missing ones are ALWAYS present on Vercel/Mac/mobile
+    const finalBoards = mergeCanonicalBoards(rawBoards);
+    this.setLocal(STORAGE_KEYS.BOARDS, finalBoards);
 
-    return local;
+    return finalBoards;
   }
 
   // Helper: Load board details from server or local storage

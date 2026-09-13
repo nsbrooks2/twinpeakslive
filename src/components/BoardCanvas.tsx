@@ -219,13 +219,15 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
 
   // Active board object
   const activeBoard = boards.find((b) => b.id === activeBoardId) || boards[0];
-  const currentEpNumber = activeBoard?.episode_number || (
-    activeBoard?.title?.toLowerCase().includes('episode 6') || activeBoard?.id?.includes('episode-6') || activeBoardId?.includes('episode-6') ? 6 :
-    activeBoard?.title?.toLowerCase().includes('episode 5') || activeBoard?.id?.includes('episode-5') || activeBoardId?.includes('episode-5') ? 5 :
-    activeBoard?.title?.toLowerCase().includes('episode 4') || activeBoard?.id?.includes('episode-4') || activeBoardId?.includes('episode-4') ? 4 :
-    activeBoard?.title?.toLowerCase().includes('episode 3') || activeBoard?.id?.includes('episode-3') || activeBoardId?.includes('episode-3') ? 3 :
-    activeBoard?.title?.toLowerCase().includes('episode 2') || activeBoard?.id?.includes('episode-2') || activeBoardId?.includes('episode-2') ? 2 : 1
-  );
+  const currentEpNumber = activeBoard?.episode_number || (() => {
+    const id = activeBoard?.id || activeBoardId || '';
+    const title = activeBoard?.title || '';
+    const matchId = id.match(/episode-(\d+)/i);
+    if (matchId) return parseInt(matchId[1], 10);
+    const matchTitle = title.match(/episode\s*(\d+)/i);
+    if (matchTitle) return parseInt(matchTitle[1], 10);
+    return 1;
+  })();
 
   // 1. Initial Load of Boards
   useEffect(() => {

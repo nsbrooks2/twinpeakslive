@@ -147,14 +147,18 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
     }
   }, [remoteStream, inCall]);
 
+  // Dynamic helper to resolve episode number from title or id
+  const resolveEpNum = (epNum?: number, title: string = '', id: string = ''): number => {
+    if (epNum && EPISODE_STREAMS[epNum]) return epNum;
+    const matchId = id.match(/episode-(\d+)/i);
+    if (matchId && EPISODE_STREAMS[parseInt(matchId[1], 10)]) return parseInt(matchId[1], 10);
+    const matchTitle = title.match(/episode\s*(\d+)/i);
+    if (matchTitle && EPISODE_STREAMS[parseInt(matchTitle[1], 10)]) return parseInt(matchTitle[1], 10);
+    return 1;
+  };
+
   // Episode selection (supports all episodes configured in EPISODE_STREAMS)
-  const initialEp = activeEpisodeNumber || (
-    boardTitle.toLowerCase().includes('episode 6') || boardId.includes('episode-6') ? 6 :
-    boardTitle.toLowerCase().includes('episode 5') || boardId.includes('episode-5') ? 5 :
-    boardTitle.toLowerCase().includes('episode 4') || boardId.includes('episode-4') ? 4 :
-    boardTitle.toLowerCase().includes('episode 3') || boardId.includes('episode-3') ? 3 :
-    boardTitle.toLowerCase().includes('episode 2') || boardId.includes('episode-2') ? 2 : 1
-  );
+  const initialEp = resolveEpNum(activeEpisodeNumber, boardTitle, boardId);
   const [selectedEpisode, setSelectedEpisode] = useState<number>(initialEp);
   const selectedEpisodeRef = useRef<number>(initialEp);
 
@@ -163,26 +167,10 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
   }, [selectedEpisode]);
 
   useEffect(() => {
-    if (activeEpisodeNumber) {
-      setSelectedEpisode(activeEpisodeNumber);
-      const epData = EPISODE_STREAMS[activeEpisodeNumber] || EPISODE_STREAMS[1];
-      setDuration(epData.durationSeconds);
-    } else if (boardTitle.toLowerCase().includes('episode 6') || boardId.includes('episode-6')) {
-      setSelectedEpisode(6);
-      setDuration(EPISODE_STREAMS[6]?.durationSeconds || 2880);
-    } else if (boardTitle.toLowerCase().includes('episode 5') || boardId.includes('episode-5')) {
-      setSelectedEpisode(5);
-      setDuration(EPISODE_STREAMS[5]?.durationSeconds || 2940);
-    } else if (boardTitle.toLowerCase().includes('episode 4') || boardId.includes('episode-4')) {
-      setSelectedEpisode(4);
-      setDuration(EPISODE_STREAMS[4]?.durationSeconds || 2940);
-    } else if (boardTitle.toLowerCase().includes('episode 3') || boardId.includes('episode-3')) {
-      setSelectedEpisode(3);
-      setDuration(EPISODE_STREAMS[3]?.durationSeconds || 2940);
-    } else if (boardTitle.toLowerCase().includes('episode 2') || boardId.includes('episode-2')) {
-      setSelectedEpisode(2);
-      setDuration(EPISODE_STREAMS[2]?.durationSeconds || 2880);
-    }
+    const ep = resolveEpNum(activeEpisodeNumber, boardTitle, boardId);
+    setSelectedEpisode(ep);
+    const epData = EPISODE_STREAMS[ep] || EPISODE_STREAMS[1];
+    setDuration(epData.durationSeconds);
   }, [activeEpisodeNumber, boardId, boardTitle]);
 
   const activeStream: EpisodeVideoData = EPISODE_STREAMS[selectedEpisode] || EPISODE_STREAMS[1];

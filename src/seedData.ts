@@ -42,6 +42,20 @@ export const EPISODE_6_RAW_DOWNLOAD_URL =
   'https://drive.usercontent.google.com/download?id=1FFymzNoG4hEJ2RwRU6LyYUF5b3y6HCeR&export=download&authuser=0&confirm=t&uuid=19ab8942-a937-4bdd-a2c9-3d0cc9df77fb&at=AMrWOn11E__8jiMBfEHAmf8AuoGG:1789262529700';
 export const EPISODE_6_VIDEO_URL = EPISODE_6_EMBED_URL;
 
+export const EPISODE_7_DRIVE_FILE_ID = '1vth5A67BuVapiCYkbcUiOzw2hSinubDy';
+export const EPISODE_7_EMBED_URL = `https://drive.google.com/file/d/${EPISODE_7_DRIVE_FILE_ID}/preview`;
+export const EPISODE_7_VIEW_URL = `https://drive.google.com/file/d/${EPISODE_7_DRIVE_FILE_ID}/view`;
+export const EPISODE_7_RAW_DOWNLOAD_URL =
+  'https://drive.usercontent.google.com/download?id=1vth5A67BuVapiCYkbcUiOzw2hSinubDy&export=download&authuser=0&confirm=t&uuid=cdfdd2f5-4d29-4f01-98d6-1d8f2bfc9901&at=AMrWOn02FR1Psh2JBXzHGHsi0hVv:1789306853940';
+export const EPISODE_7_VIDEO_URL = EPISODE_7_EMBED_URL;
+
+export const EPISODE_8_DRIVE_FILE_ID = '1nbhl-XOUHxslFcVHtmiKVnvuPzzumCM7';
+export const EPISODE_8_EMBED_URL = `https://drive.google.com/file/d/${EPISODE_8_DRIVE_FILE_ID}/preview`;
+export const EPISODE_8_VIEW_URL = `https://drive.google.com/file/d/${EPISODE_8_DRIVE_FILE_ID}/view`;
+export const EPISODE_8_RAW_DOWNLOAD_URL =
+  'https://drive.usercontent.google.com/download?id=1nbhl-XOUHxslFcVHtmiKVnvuPzzumCM7&export=download&authuser=0&confirm=t&uuid=5af236ec-7127-4489-a079-211f7f7ccdad&at=AMrWOn0iQdOsop99tgGBotc7xZWR:1789306859623';
+export const EPISODE_8_VIDEO_URL = EPISODE_8_EMBED_URL;
+
 export interface EpisodeVideoData {
   episodeNumber: number;
   title: string;
@@ -120,6 +134,28 @@ export const EPISODE_STREAMS: Record<number, EpisodeVideoData> = {
     rawDownloadUrl: EPISODE_6_RAW_DOWNLOAD_URL,
     durationSeconds: 2880,
     description: "Agent Cooper, Sheriff Truman, Deputy Hawk, and Doc Hayward search Jacques Renault's cabin in the woods, finding Waldo the Mynah bird. Audrey Horne begins her undercover work at One Eyed Jacks."
+  },
+  7: {
+    episodeNumber: 7,
+    title: 'Episode 7: Realization Time',
+    badge: 'EPISODE 7: REALIZATION TIME',
+    driveFileId: EPISODE_7_DRIVE_FILE_ID,
+    embedUrl: EPISODE_7_EMBED_URL,
+    viewUrl: EPISODE_7_VIEW_URL,
+    rawDownloadUrl: EPISODE_7_RAW_DOWNLOAD_URL,
+    durationSeconds: 2940,
+    description: "Audrey applies for a job at One Eyed Jacks; Cooper and Truman trace bloodstains to Jacques Renault's cabin; Maddy, James, and Donna search for Laura's hidden cassette tapes."
+  },
+  8: {
+    episodeNumber: 8,
+    title: 'Episode 8: The Last Evening',
+    badge: 'EPISODE 8: THE LAST EVENING',
+    driveFileId: EPISODE_8_DRIVE_FILE_ID,
+    embedUrl: EPISODE_8_EMBED_URL,
+    viewUrl: EPISODE_8_VIEW_URL,
+    rawDownloadUrl: EPISODE_8_RAW_DOWNLOAD_URL,
+    durationSeconds: 2940,
+    description: 'Season 1 Finale: Cooper lures Jacques Renault into a trap at the Great Northern; Leo sets fire to the sawmill; Audrey is trapped at One Eyed Jacks; a mystery shooter targets Cooper in his hotel room.'
   }
 };
 
@@ -175,6 +211,24 @@ export const INITIAL_EPISODE_6_BOARD: EpisodeBoard = {
   created_at: new Date('2026-09-06T08:00:00Z').toISOString(),
   updated_at: new Date('2026-09-06T10:00:00Z').toISOString(),
   description: "Agent Cooper, Sheriff Truman, Deputy Hawk, and Doc Hayward search Jacques Renault's cabin in the woods, finding Waldo the Mynah bird. Audrey Horne begins her undercover work at One Eyed Jacks."
+};
+
+export const INITIAL_EPISODE_7_BOARD: EpisodeBoard = {
+  id: 'episode-7-realization-time',
+  title: 'Episode 7: Realization Time',
+  episode_number: 7,
+  created_at: new Date('2026-09-07T08:00:00Z').toISOString(),
+  updated_at: new Date('2026-09-07T10:00:00Z').toISOString(),
+  description: "Audrey applies for a job at One Eyed Jacks; Cooper and Truman trace bloodstains to Jacques Renault's cabin; Maddy, James, and Donna search for Laura's hidden cassette tapes."
+};
+
+export const INITIAL_EPISODE_8_BOARD: EpisodeBoard = {
+  id: 'episode-8-the-last-evening',
+  title: 'Episode 8: The Last Evening',
+  episode_number: 8,
+  created_at: new Date('2026-09-08T08:00:00Z').toISOString(),
+  updated_at: new Date('2026-09-08T10:00:00Z').toISOString(),
+  description: 'Season 1 Finale: Cooper lures Jacques Renault into a trap at the Great Northern; Leo sets fire to the sawmill; Audrey is trapped at One Eyed Jacks; a mystery shooter targets Cooper in his hotel room.'
 };
 
 // Start with no cards on the board at the start as requested

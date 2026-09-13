@@ -138,6 +138,22 @@ const DEFAULT_DB: DatabaseSchema = {
       created_at: new Date('2026-09-06T08:00:00Z').toISOString(),
       updated_at: new Date('2026-09-06T10:00:00Z').toISOString(),
       description: "Agent Cooper, Sheriff Truman, Deputy Hawk, and Doc Hayward search Jacques Renault's cabin in the woods, finding Waldo the Mynah bird. Audrey Horne begins her undercover work at One Eyed Jacks."
+    },
+    {
+      id: 'episode-7-realization-time',
+      title: 'Episode 7: Realization Time',
+      episode_number: 7,
+      created_at: new Date('2026-09-07T08:00:00Z').toISOString(),
+      updated_at: new Date('2026-09-07T10:00:00Z').toISOString(),
+      description: "Audrey applies for a job at One Eyed Jacks; Cooper and Truman trace bloodstains to Jacques Renault's cabin; Maddy, James, and Donna search for Laura's hidden cassette tapes."
+    },
+    {
+      id: 'episode-8-the-last-evening',
+      title: 'Episode 8: The Last Evening',
+      episode_number: 8,
+      created_at: new Date('2026-09-08T08:00:00Z').toISOString(),
+      updated_at: new Date('2026-09-08T10:00:00Z').toISOString(),
+      description: 'Season 1 Finale: Cooper lures Jacques Renault into a trap at the Great Northern; Leo sets fire to the sawmill; Audrey is trapped at One Eyed Jacks; a mystery shooter targets Cooper in his hotel room.'
     }
   ],
   cards: [],

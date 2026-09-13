@@ -130,6 +130,14 @@ const DEFAULT_DB: DatabaseSchema = {
       created_at: new Date('2026-09-05T08:00:00Z').toISOString(),
       updated_at: new Date('2026-09-05T10:00:00Z').toISOString(),
       description: 'Cooper and Truman question the One-Armed Man (Phillip Gerard) and track veterinarian records for a mysterious bird. Audrey Horne goes undercover at One Eyed Jacks.'
+    },
+    {
+      id: 'episode-6-coopers-dreams',
+      title: "Episode 6: Cooper's Dreams",
+      episode_number: 6,
+      created_at: new Date('2026-09-06T08:00:00Z').toISOString(),
+      updated_at: new Date('2026-09-06T10:00:00Z').toISOString(),
+      description: "Agent Cooper, Sheriff Truman, Deputy Hawk, and Doc Hayward search Jacques Renault's cabin in the woods, finding Waldo the Mynah bird. Audrey Horne begins her undercover work at One Eyed Jacks."
     }
   ],
   cards: [],

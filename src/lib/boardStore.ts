@@ -11,6 +11,7 @@ import {
   INITIAL_EPISODE_3_BOARD,
   INITIAL_EPISODE_4_BOARD,
   INITIAL_EPISODE_5_BOARD,
+  INITIAL_EPISODE_6_BOARD,
 } from '../seedData';
 import { getSupabase } from './supabase';
 
@@ -126,7 +127,7 @@ export class BoardRepository {
     // 3. Local storage check
     let local = this.getLocal<EpisodeBoard[]>(STORAGE_KEYS.BOARDS, []);
     if (local.length === 0) {
-      const seeded = [INITIAL_PILOT_BOARD, INITIAL_EPISODE_2_BOARD, INITIAL_EPISODE_3_BOARD, INITIAL_EPISODE_4_BOARD, INITIAL_EPISODE_5_BOARD];
+      const seeded = [INITIAL_PILOT_BOARD, INITIAL_EPISODE_2_BOARD, INITIAL_EPISODE_3_BOARD, INITIAL_EPISODE_4_BOARD, INITIAL_EPISODE_5_BOARD, INITIAL_EPISODE_6_BOARD];
       this.setLocal(STORAGE_KEYS.BOARDS, seeded);
       return seeded;
     }
@@ -145,6 +146,10 @@ export class BoardRepository {
     }
     if (!local.some(b => b.episode_number === 5 || b.id === INITIAL_EPISODE_5_BOARD.id)) {
       local = [...local, INITIAL_EPISODE_5_BOARD];
+      this.setLocal(STORAGE_KEYS.BOARDS, local);
+    }
+    if (!local.some(b => b.episode_number === 6 || b.id === INITIAL_EPISODE_6_BOARD.id)) {
+      local = [...local, INITIAL_EPISODE_6_BOARD];
       this.setLocal(STORAGE_KEYS.BOARDS, local);
     }
 

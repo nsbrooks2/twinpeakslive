@@ -220,6 +220,7 @@ export const BoardCanvas: React.FC<CanvasProps> = ({ currentUser, onSignOut, onU
   // Active board object
   const activeBoard = boards.find((b) => b.id === activeBoardId) || boards[0];
   const currentEpNumber = activeBoard?.episode_number || (
+    activeBoard?.title?.toLowerCase().includes('episode 6') || activeBoard?.id?.includes('episode-6') || activeBoardId?.includes('episode-6') ? 6 :
     activeBoard?.title?.toLowerCase().includes('episode 5') || activeBoard?.id?.includes('episode-5') || activeBoardId?.includes('episode-5') ? 5 :
     activeBoard?.title?.toLowerCase().includes('episode 4') || activeBoard?.id?.includes('episode-4') || activeBoardId?.includes('episode-4') ? 4 :
     activeBoard?.title?.toLowerCase().includes('episode 3') || activeBoard?.id?.includes('episode-3') || activeBoardId?.includes('episode-3') ? 3 :

@@ -197,7 +197,8 @@ insert into boards (id, title, episode_number, description) values
   ('episode-2-traces-to-nowhere', 'Episode 2: Traces to Nowhere', 2, 'Agent Cooper questions James Hurley.'),
   ('episode-3-zen-skill', 'Episode 3: Zen, or the Skill to Catch a Killer', 3, 'Tibetan rock-throwing technique in the woods.'),
   ('episode-4-rest-in-pain', 'Episode 4: Rest in Pain', 4, 'The town gathers for Laura Palmer funeral.'),
-  ('episode-5-the-one-armed-man', 'Episode 5: The One-Armed Man', 5, 'Cooper and Truman question Phillip Gerard.')
+  ('episode-5-the-one-armed-man', 'Episode 5: The One-Armed Man', 5, 'Cooper and Truman question Phillip Gerard.'),
+  ('episode-6-coopers-dreams', 'Episode 6: Cooper''s Dreams', 6, 'Agent Cooper searches Jacques Renault''s cabin.')
 on conflict (id) do nothing;
 
 -- Enable realtime publications safely without failing if already added:

@@ -149,6 +149,7 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
 
   // Episode selection (supports all episodes configured in EPISODE_STREAMS)
   const initialEp = activeEpisodeNumber || (
+    boardTitle.toLowerCase().includes('episode 6') || boardId.includes('episode-6') ? 6 :
     boardTitle.toLowerCase().includes('episode 5') || boardId.includes('episode-5') ? 5 :
     boardTitle.toLowerCase().includes('episode 4') || boardId.includes('episode-4') ? 4 :
     boardTitle.toLowerCase().includes('episode 3') || boardId.includes('episode-3') ? 3 :
@@ -166,6 +167,9 @@ export const WatchPartyModal: React.FC<WatchPartyModalProps> = ({
       setSelectedEpisode(activeEpisodeNumber);
       const epData = EPISODE_STREAMS[activeEpisodeNumber] || EPISODE_STREAMS[1];
       setDuration(epData.durationSeconds);
+    } else if (boardTitle.toLowerCase().includes('episode 6') || boardId.includes('episode-6')) {
+      setSelectedEpisode(6);
+      setDuration(EPISODE_STREAMS[6]?.durationSeconds || 2880);
     } else if (boardTitle.toLowerCase().includes('episode 5') || boardId.includes('episode-5')) {
       setSelectedEpisode(5);
       setDuration(EPISODE_STREAMS[5]?.durationSeconds || 2940);

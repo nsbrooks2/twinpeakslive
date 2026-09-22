@@ -56,6 +56,34 @@ export const EPISODE_8_RAW_DOWNLOAD_URL =
   'https://drive.usercontent.google.com/download?id=1nbhl-XOUHxslFcVHtmiKVnvuPzzumCM7&export=download&authuser=0&confirm=t&uuid=5af236ec-7127-4489-a079-211f7f7ccdad&at=AMrWOn0iQdOsop99tgGBotc7xZWR:1789306859623';
 export const EPISODE_8_VIDEO_URL = EPISODE_8_EMBED_URL;
 
+export const EPISODE_9_DRIVE_FILE_ID = '1KjAq8TDNAWgUjbEL9dfsOxocq1Jwp_FJ';
+export const EPISODE_9_EMBED_URL = `https://drive.google.com/file/d/${EPISODE_9_DRIVE_FILE_ID}/preview`;
+export const EPISODE_9_VIEW_URL = `https://drive.google.com/file/d/${EPISODE_9_DRIVE_FILE_ID}/view`;
+export const EPISODE_9_RAW_DOWNLOAD_URL =
+  'https://drive.usercontent.google.com/download?id=1KjAq8TDNAWgUjbEL9dfsOxocq1Jwp_FJ&export=download&authuser=0&confirm=t&uuid=0ac54314-00a0-4e3d-9e88-b2cd9c3bb9f1&at=AMrWOn3h8NzN0ChKSuoQMj0o-R5L:1790092232413';
+export const EPISODE_9_VIDEO_URL = EPISODE_9_EMBED_URL;
+
+export const EPISODE_10_DRIVE_FILE_ID = '1oMquHA8F4_ye-mnlI_dtVmHRGwQnN6Ni';
+export const EPISODE_10_EMBED_URL = `https://drive.google.com/file/d/${EPISODE_10_DRIVE_FILE_ID}/preview`;
+export const EPISODE_10_VIEW_URL = `https://drive.google.com/file/d/${EPISODE_10_DRIVE_FILE_ID}/view`;
+export const EPISODE_10_RAW_DOWNLOAD_URL =
+  'https://drive.usercontent.google.com/download?id=1oMquHA8F4_ye-mnlI_dtVmHRGwQnN6Ni&export=download&authuser=0&confirm=t&uuid=00c7e7ee-08bf-4ce5-ad06-9491187b6ba5&at=AMrWOn0hBDM8HE8lbcf6gkP1I4cU:1790092248504';
+export const EPISODE_10_VIDEO_URL = EPISODE_10_EMBED_URL;
+
+export const EPISODE_11_DRIVE_FILE_ID = '1b4ih2JjMT2Rs74wMt2lI6UyBERKdwo1a';
+export const EPISODE_11_EMBED_URL = `https://drive.google.com/file/d/${EPISODE_11_DRIVE_FILE_ID}/preview`;
+export const EPISODE_11_VIEW_URL = `https://drive.google.com/file/d/${EPISODE_11_DRIVE_FILE_ID}/view`;
+export const EPISODE_11_RAW_DOWNLOAD_URL =
+  'https://drive.usercontent.google.com/download?id=1b4ih2JjMT2Rs74wMt2lI6UyBERKdwo1a&export=download&authuser=0&confirm=t&uuid=6f16ce89-e6b9-4f91-99e3-3782bd44f42d&at=AMrWOn2qNXdUHe42Br2hqkYqMBkl:1790092255502';
+export const EPISODE_11_VIDEO_URL = EPISODE_11_EMBED_URL;
+
+export const EPISODE_12_DRIVE_FILE_ID = '1Xze2VUDbL6OryU_77c6F06XX7t-mbEM9';
+export const EPISODE_12_EMBED_URL = `https://drive.google.com/file/d/${EPISODE_12_DRIVE_FILE_ID}/preview`;
+export const EPISODE_12_VIEW_URL = `https://drive.google.com/file/d/${EPISODE_12_DRIVE_FILE_ID}/view`;
+export const EPISODE_12_RAW_DOWNLOAD_URL =
+  'https://drive.usercontent.google.com/download?id=1Xze2VUDbL6OryU_77c6F06XX7t-mbEM9&export=download&authuser=0&confirm=t&uuid=15a399f1-dbec-4bcc-8dd7-be6b90954411&at=AMrWOn0s-Un6a3d7o6lR645zbkqv:1790092266152';
+export const EPISODE_12_VIDEO_URL = EPISODE_12_EMBED_URL;
+
 export interface EpisodeVideoData {
   episodeNumber: number;
   title: string;
@@ -156,6 +184,50 @@ export const EPISODE_STREAMS: Record<number, EpisodeVideoData> = {
     rawDownloadUrl: EPISODE_8_RAW_DOWNLOAD_URL,
     durationSeconds: 2940,
     description: 'Season 1 Finale: Cooper lures Jacques Renault into a trap at the Great Northern; Leo sets fire to the sawmill; Audrey is trapped at One Eyed Jacks; a mystery shooter targets Cooper in his hotel room.'
+  },
+  9: {
+    episodeNumber: 9,
+    title: 'Season 2 Episode 1',
+    badge: 'SEASON 2: EPISODE 1',
+    driveFileId: EPISODE_9_DRIVE_FILE_ID,
+    embedUrl: EPISODE_9_EMBED_URL,
+    viewUrl: EPISODE_9_VIEW_URL,
+    rawDownloadUrl: EPISODE_9_RAW_DOWNLOAD_URL,
+    durationSeconds: 2940,
+    description: 'Season 2 premiere.'
+  },
+  10: {
+    episodeNumber: 10,
+    title: 'Season 2 Episode 2',
+    badge: 'SEASON 2: EPISODE 2',
+    driveFileId: EPISODE_10_DRIVE_FILE_ID,
+    embedUrl: EPISODE_10_EMBED_URL,
+    viewUrl: EPISODE_10_VIEW_URL,
+    rawDownloadUrl: EPISODE_10_RAW_DOWNLOAD_URL,
+    durationSeconds: 2940,
+    description: 'Season 2 episode 2.'
+  },
+  11: {
+    episodeNumber: 11,
+    title: 'Season 2 Episode 3',
+    badge: 'SEASON 2: EPISODE 3',
+    driveFileId: EPISODE_11_DRIVE_FILE_ID,
+    embedUrl: EPISODE_11_EMBED_URL,
+    viewUrl: EPISODE_11_VIEW_URL,
+    rawDownloadUrl: EPISODE_11_RAW_DOWNLOAD_URL,
+    durationSeconds: 2940,
+    description: 'Season 2 episode 3.'
+  },
+  12: {
+    episodeNumber: 12,
+    title: 'Season 2 Episode 4',
+    badge: 'SEASON 2: EPISODE 4',
+    driveFileId: EPISODE_12_DRIVE_FILE_ID,
+    embedUrl: EPISODE_12_EMBED_URL,
+    viewUrl: EPISODE_12_VIEW_URL,
+    rawDownloadUrl: EPISODE_12_RAW_DOWNLOAD_URL,
+    durationSeconds: 2940,
+    description: 'Season 2 episode 4.'
   }
 };
 
@@ -229,6 +301,42 @@ export const INITIAL_EPISODE_8_BOARD: EpisodeBoard = {
   created_at: new Date('2026-09-08T08:00:00Z').toISOString(),
   updated_at: new Date('2026-09-08T10:00:00Z').toISOString(),
   description: 'Season 1 Finale: Cooper lures Jacques Renault into a trap at the Great Northern; Leo sets fire to the sawmill; Audrey is trapped at One Eyed Jacks; a mystery shooter targets Cooper in his hotel room.'
+};
+
+export const INITIAL_EPISODE_9_BOARD: EpisodeBoard = {
+  id: 'episode-9-s2-e1',
+  title: 'Season 2 Episode 1',
+  episode_number: 9,
+  created_at: new Date('2026-09-09T08:00:00Z').toISOString(),
+  updated_at: new Date('2026-09-09T10:00:00Z').toISOString(),
+  description: 'Season 2 premiere.'
+};
+
+export const INITIAL_EPISODE_10_BOARD: EpisodeBoard = {
+  id: 'episode-10-s2-e2',
+  title: 'Season 2 Episode 2',
+  episode_number: 10,
+  created_at: new Date('2026-09-10T08:00:00Z').toISOString(),
+  updated_at: new Date('2026-09-10T10:00:00Z').toISOString(),
+  description: 'Season 2 episode 2.'
+};
+
+export const INITIAL_EPISODE_11_BOARD: EpisodeBoard = {
+  id: 'episode-11-s2-e3',
+  title: 'Season 2 Episode 3',
+  episode_number: 11,
+  created_at: new Date('2026-09-11T08:00:00Z').toISOString(),
+  updated_at: new Date('2026-09-11T10:00:00Z').toISOString(),
+  description: 'Season 2 episode 3.'
+};
+
+export const INITIAL_EPISODE_12_BOARD: EpisodeBoard = {
+  id: 'episode-12-s2-e4',
+  title: 'Season 2 Episode 4',
+  episode_number: 12,
+  created_at: new Date('2026-09-12T08:00:00Z').toISOString(),
+  updated_at: new Date('2026-09-12T10:00:00Z').toISOString(),
+  description: 'Season 2 episode 4.'
 };
 
 // Start with no cards on the board at the start as requested

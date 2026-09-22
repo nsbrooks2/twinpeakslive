@@ -586,6 +586,9 @@ initServerMesh();
 
 // WebSocket Server
 const wss = new WebSocketServer({ server, path: '/ws' });
+wss.on('error', (err) => {
+  console.warn('[WebSocketServer Error caught]', err);
+});
 
 function getPublicOnlineUsers() {
   const now = Date.now();
@@ -1979,7 +1982,7 @@ app.get('/api/episodes/:episodeNumber/video', (req, res) => {
 async function start() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -1993,6 +1996,14 @@ async function start() {
 
   // Only start listening when run as a standalone server (not inside Vercel serverless function)
   if (!IS_VERCEL) {
+    server.on('error', (err: any) => {
+      if (err.code === 'EADDRINUSE') {
+        console.warn(`[Server] Port ${PORT} is already bound by another process. Express reusing existing socket if attached.`);
+      } else {
+        console.error('[Server Error]', err);
+      }
+    });
+
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`[Twin Peaks Server] Sheriff Dispatch Server running on port ${PORT}`);
       hydrateFromSupabase().catch((err) => {
